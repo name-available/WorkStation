@@ -144,10 +144,26 @@ tbody tr:hover{background:#f6f9fc}
 .tl .tl-axis::before{content:'';position:absolute;left:calc(50% - 1px);top:0;bottom:0;width:2px;background:var(--line)}.tl .tl-axis .dot{position:absolute;left:50%;top:17px;width:10px;height:10px;border-radius:50%;background:#fff;border:3px solid var(--primary);transform:translate(-50%,-50%);z-index:1}
 .tl .tl-axis .dot.r{border-color:var(--red)}
 .tl .tl-axis .dot.a{border-color:var(--amber)}
+.tl .tl-axis .dot.b{border-color:var(--primary)}
 .tl .tl-body{padding:8px 0 16px 12px;min-width:0}
 .tl .tl-body .t-topic{font-size:14px;font-weight:600;color:var(--text)}
 .tl .tl-body .t-meta{font-size:13px;color:var(--muted);margin:2px 0 4px}
 .tl .tl-body .t-content{font-size:13.5px;color:#3d4c5e;background:#f7f9fc;border-radius:6px;padding:8px 10px;white-space:pre-wrap}
+
+/* ===== 重点关注板块 ===== */
+.focus-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+.focus-stat{background:#fff;border:1px solid var(--border-s);border-radius:var(--radius);padding:14px 16px}
+.focus-stat .k{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:8px}
+.focus-stat .v{display:flex;gap:8px;flex-wrap:wrap}
+.fc{display:inline-block;border-radius:999px;padding:2px 12px;font-size:12.5px;font-weight:600;background:var(--gray-bg);color:var(--gray)}
+.fc.红{background:var(--red-bg);color:var(--red)}
+.fc.橙{background:var(--amber-bg);color:var(--amber)}
+.fc.黄{background:#f6efd9;color:#a37f1f}
+.row-sel{background:#f0f6ff !important}
+.row-sel td{border-bottom-color:#dce9f8}
+.focus-detail{margin-top:18px}
+.focus-detail h3{font-size:16px;color:var(--navy);margin:0 0 4px}
+.focus-detail .m-sub{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.6}
 
 /* ===== 画像 ===== */
 .portrait-head{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start}

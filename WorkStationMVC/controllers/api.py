@@ -4,8 +4,11 @@
 负责解析请求、调用 Model(数据库)、返回 JSON 响应。
 所有写操作成功后返回 {state: <最新全量数据>}，前端直接用最新状态重渲染。
 """
+import email
+import email.policy
 import json
 import re
+import sqlite3
 import urllib.parse
 
 from models.db import Database
@@ -32,6 +35,46 @@ def _read_body(handler):
         return {}
 
 
+def _parse_multipart(handler):
+    """解析 multipart/form-data 请求体 → {字段名: 字符串 | {'filename','content'}}。"""
+    ctype = handler.headers.get('Content-Type') or ''
+    m = re.search(r'boundary=(?:"([^"]+)"|([^;\s]+))', ctype, re.I)
+    if not m:
+        return {}
+    boundary = m.group(1) or m.group(2)
+    length = int(handler.headers.get('Content-Length') or 0)
+    if length <= 0:
+        return {}
+    raw = handler.rfile.read(length)
+    header = ('Content-Type: multipart/form-data; boundary=%s\r\nMIME-Version: 1.0\r\n\r\n' % boundary).encode('utf-8')
+    msg = email.message_from_bytes(header + raw, policy=email.policy.default)
+    parts = {}
+    if not msg.is_multipart():
+        return parts
+    for part in msg.iter_parts():
+        name = part.get_param('name', header='content-disposition')
+        if name is None:
+            continue
+        fname = part.get_filename()
+        payload = part.get_payload(decode=True) or b''
+        if fname:
+            parts[name] = {'filename': fname, 'content': payload}
+        else:
+            try:
+                parts[name] = payload.decode('utf-8')
+            except Exception:
+                parts[name] = ''
+    return parts
+
+
+def _fmt_size(n):
+    if n < 1024:
+        return '%d B' % n
+    if n < 1024 * 1024:
+        return '%.1f KB' % (n / 1024.0)
+    return '%.1f MB' % (n / (1024.0 * 1024.0))
+
+
 def _path_parts(path):
     """/api/students/xxx -> ['students', 'xxx']"""
     p = urllib.parse.urlparse(path).path
@@ -51,14 +94,26 @@ def _err(handler, code, msg):
 
 
 def _check_origin(handler):
-    """本地单机防护：仅允许本站页面发起写请求。"""
+    """本地单机防护：仅允许本站页面（当前实际监听端口）发起写请求。"""
     origin = handler.headers.get('Origin')
-    if origin and origin not in ('http://127.0.0.1:8790', 'http://localhost:8790'):
-        return False
-    return True
+    if not origin:
+        return True
+    port = getattr(handler.server, 'server_port', 8790)
+    if origin in ('http://127.0.0.1:%d' % port, 'http://localhost:%d' % port):
+        return True
+    return False
 
 
 def handle_api(handler, db, method):
+    try:
+        _dispatch(handler, db, method)
+    except sqlite3.IntegrityError as e:
+        _err(handler, 400, '数据唯一性冲突：' + str(e))
+    except Exception as e:  # noqa
+        _err(handler, 500, '服务器错误：' + str(e))
+
+
+def _dispatch(handler, db, method):
     parts = _path_parts(handler.path)  # ['api', ...]
     if len(parts) < 2 or parts[0] != 'api':
         _err(handler, 404, 'not found')
@@ -71,6 +126,40 @@ def handle_api(handler, db, method):
 
     if method != 'GET' and not _check_origin(handler):
         _err(handler, 403, '跨站请求已拒绝')
+        return
+
+    # ---- 重点关注：文件上传（multipart，须在读取 JSON body 之前处理） ----
+    if method == 'POST' and res == 'focus' and len(parts) >= 3 and parts[2] == 'upload':
+        fields = _parse_multipart(handler)
+        sid = (fields.get('sid') or '').strip()
+        ftype = (fields.get('type') or '其他').strip()
+        date = (fields.get('date') or '').strip()
+        up = fields.get('file')
+        if not sid or not up or not up.get('content'):
+            _err(handler, 400, '参数缺失：请选择学生与文件')
+            return
+        stu = None
+        for x in db.state()['students']:
+            if x['id'] == sid:
+                stu = x
+                break
+        if not stu:
+            _err(handler, 400, '学生不存在')
+            return
+        if len(up['content']) > 100 * 1024 * 1024:
+            _err(handler, 400, '文件过大（超过 100 MB）')
+            return
+        f, err = db.save_focus_upload(
+            sid, stu['name'], ftype, up['content'],
+            up.get('filename') or '', _fmt_size(len(up['content'])), date or None)
+        if err:
+            _err(handler, 500, err)
+            return
+        _ok(handler, db, {'payload': {'file': {'id': f['id'], 'name': f['name']}}})
+        return
+    if method == 'POST' and res == 'focus' and len(parts) >= 3 and parts[2] == 'openfolder':
+        db.open_focus_dir()
+        _ok(handler, db)
         return
 
     body = _read_body(handler)
@@ -149,6 +238,8 @@ def handle_api(handler, db, method):
     # ---- 设置 ----
     if method == 'PUT' and res == 'settings':
         db.save_settings(body.get('settings') or {})
+        for k, v in (body.get('meta') or {}).items():
+            db.set_meta(k, v)
         _ok(handler, db)
         return
 

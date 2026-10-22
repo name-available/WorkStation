@@ -1,6 +1,6 @@
 {
-  "src": "/Users/ashley/Desktop/WorkStation/辅导员工作站/辅导员工作站.html",
-  "url": "file:///Users/ashley/Desktop/WorkStation/%E8%BE%85%E5%AF%BC%E5%91%98%E5%B7%A5%E4%BD%9C%E7%AB%99/%E8%BE%85%E5%AF%BC%E5%91%98%E5%B7%A5%E4%BD%9C%E7%AB%99.html",
+  "src": "http://127.0.0.1:8795/",
+  "url": "http://127.0.0.1:8795/",
   "outdir": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots",
   "include": [
     "lint",
@@ -9,8 +9,8 @@
   ],
   "shots": {
     "desktop": {
-      "screenshot": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/辅导员工作站_desktop.jpg",
-      "screenshotBytes": 59147,
+      "screenshot": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/127_0_0_1_desktop.jpg",
+      "screenshotBytes": 52249,
       "truncated": false,
       "structure": {
         "title": "辅导员工作站 WorkStation",
@@ -21,7 +21,7 @@
         },
         "fullpage": {
           "w": 1440,
-          "h": 1296
+          "h": 1214
         },
         "counts": {
           "section": 6,
@@ -31,7 +31,7 @@
           "canvas": 2,
           "svg": 7,
           "links": 0,
-          "buttons": 5
+          "buttons": 4
         }
       },
       "consoleErrors": [],
@@ -41,8 +41,8 @@
       "reportSource": "cdp"
     },
     "mobile": {
-      "screenshot": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/辅导员工作站_mobile.jpg",
-      "screenshotBytes": 88676,
+      "screenshot": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/127_0_0_1_mobile.jpg",
+      "screenshotBytes": 78119,
       "truncated": false,
       "structure": {
         "title": "辅导员工作站 WorkStation",
@@ -53,7 +53,7 @@
         },
         "fullpage": {
           "w": 500,
-          "h": 2546
+          "h": 2442
         },
         "counts": {
           "section": 6,
@@ -63,7 +63,7 @@
           "canvas": 2,
           "svg": 7,
           "links": 0,
-          "buttons": 5
+          "buttons": 4
         }
       },
       "consoleErrors": [],
@@ -77,7 +77,7 @@
   "chromiumExec": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "engineDegraded": true,
   "engineDegradedReason": "playwright 未装",
-  "elapsedSec": 7.21,
+  "elapsedSec": 11.24,
   "schemaVersion": 2,
   "status": "pass",
   "engineInfo": {
@@ -88,11 +88,11 @@
     ]
   },
   "input": {
-    "original": "/Users/ashley/Desktop/WorkStation/辅导员工作站/辅导员工作站.html",
-    "resolvedPath": "/Users/ashley/Desktop/WorkStation/辅导员工作站/辅导员工作站.html",
-    "baseUrl": "file:///Users/ashley/Desktop/WorkStation/%E8%BE%85%E5%AF%BC%E5%91%98%E5%B7%A5%E4%BD%9C%E7%AB%99/%E8%BE%85%E5%AF%BC%E5%91%98%E5%B7%A5%E4%BD%9C%E7%AB%99.html",
-    "protocol": "file",
-    "cwd": "/private/tmp",
+    "original": "http://127.0.0.1:8795/",
+    "resolvedPath": null,
+    "baseUrl": "http://127.0.0.1:8795/",
+    "protocol": "http",
+    "cwd": "/Users/ashley/Desktop/WorkStation/辅导员工作站/辅导员工作站MVC",
     "mediaMode": {
       "reducedMotion": true
     }
@@ -101,8 +101,8 @@
     "screenshots": [
       {
         "viewport": "desktop",
-        "path": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/辅导员工作站_desktop.jpg",
-        "size": 59147,
+        "path": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/127_0_0_1_desktop.jpg",
+        "size": 52249,
         "visualCoverage": {
           "complete": true,
           "reason": null
@@ -110,8 +110,8 @@
       },
       {
         "viewport": "mobile",
-        "path": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/辅导员工作站_mobile.jpg",
-        "size": 88676,
+        "path": "/Users/ashley/Desktop/WorkStation/辅导员工作站/_shots/127_0_0_1_mobile.jpg",
+        "size": 78119,
         "visualCoverage": {
           "complete": true,
           "reason": null

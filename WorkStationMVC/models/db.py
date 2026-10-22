@@ -15,6 +15,10 @@ import sqlite3
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_DIR = os.path.join(BASE_DIR, 'db')
 DB_PATH = os.path.join(DB_DIR, 'workstation.db')
+# 重点关注文件存储目录（上传的文件会存入此文件夹，并自动改名为 YYYYMMDD-姓名-文件类型）
+FOCUS_DIR = os.path.join(BASE_DIR, '重点关注文件')
+# 重点关注文件的类型（用于上传时的选择与自动命名）
+FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '其他']
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -51,7 +55,7 @@ CREATE TABLE IF NOT EXISTS files (
   category TEXT DEFAULT '', tags TEXT NOT NULL DEFAULT '[]',
   date TEXT DEFAULT '', size TEXT DEFAULT '',
   note TEXT DEFAULT '', source TEXT DEFAULT '', rel_path TEXT DEFAULT '',
-  created_at INTEGER, updated_at INTEGER
+  sid TEXT DEFAULT '', created_at INTEGER, updated_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS portraits (
@@ -124,6 +128,10 @@ class Database:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # 兼容旧版数据库：files 表补充 sid 列（重点关注文件关联学生）
+        cols = {r['name'] for r in self.conn.execute('PRAGMA table_info(files)')}
+        if 'sid' not in cols:
+            self.conn.execute('ALTER TABLE files ADD COLUMN sid TEXT DEFAULT \'\'')
         self.conn.commit()
 
     # ---------- 内部工具 ----------
@@ -193,8 +201,8 @@ class Database:
             'id': row.get('id'), 'name': row.get('name'), 'category': row.get('category') or '',
             'tags': tags, 'date': row.get('date') or '', 'size': row.get('size') or '',
             'note': row.get('note') or '', 'source': row.get('source') or '注册',
-            'relPath': row.get('rel_path') or '', 'createdAt': row.get('created_at'),
-            'updatedAt': row.get('updated_at'),
+            'relPath': row.get('rel_path') or '', 'sid': row.get('sid') or '',
+            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
         }
 
     def _file_to_db(self, f):
@@ -203,7 +211,7 @@ class Database:
             'tags': json.dumps(f.get('tags') or [], ensure_ascii=False), 'date': f.get('date') or '',
             'size': f.get('size') or '', 'note': f.get('note') or '',
             'source': f.get('source') or '注册', 'rel_path': f.get('relPath') or '',
-            'created_at': f.get('createdAt'), 'updated_at': f.get('updatedAt'),
+            'sid': f.get('sid') or '', 'created_at': f.get('createdAt'), 'updated_at': f.get('updatedAt'),
         }
 
     # ---------- 读取 ----------
@@ -364,6 +372,51 @@ class Database:
         self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
         return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0])
 
+    def _safe_seg(self, s):
+        """清洗文件名片段，避免路径分隔符与特殊字符。"""
+        s = re.sub(r'[/\\:*?"<>|\r\n\t]', '_', str(s or '').strip())
+        return s
+
+    def save_focus_upload(self, sid, sname, ftype, content, orig_name, size_str, date=None):
+        """保存重点关注上传文件：写入 FOCUS_DIR，自动改名为 YYYYMMDD-姓名-文件类型.ext，并登记文件索引。
+
+        返回 (file, None) 或 (None, 错误信息)。
+        """
+        os.makedirs(FOCUS_DIR, exist_ok=True)
+        date = date or _today()
+        ymd = date.replace('-', '')
+        ext = os.path.splitext(orig_name or '')[-1]
+        if not re.match(r'^[.][A-Za-z0-9]{1,10}$', ext):
+            ext = ''
+        base = '%s-%s-%s' % (self._safe_seg(ymd), self._safe_seg(sname), self._safe_seg(ftype or '其他'))
+        fname = base + ext
+        n = 2
+        while os.path.exists(os.path.join(FOCUS_DIR, fname)):
+            fname = '%s-%d%s' % (base, n, ext)
+            n += 1
+        with open(os.path.join(FOCUS_DIR, fname), 'wb') as fh:
+            fh.write(content)
+        f = {
+            'id': _uid(), 'name': fname, 'category': '重点关注',
+            'tags': [ftype or '其他'], 'date': date, 'size': size_str or '',
+            'note': '', 'source': '重点关注上传', 'relPath': fname,
+            'sid': sid, 'createdAt': _now(), 'updatedAt': _now(),
+        }
+        vals = self._file_to_db(f)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0]), None
+
+    def open_focus_dir(self):
+        """在访达中打开重点关注文件文件夹（仅本机）。"""
+        os.makedirs(FOCUS_DIR, exist_ok=True)
+        try:
+            import subprocess
+            subprocess.Popen(['open', FOCUS_DIR])
+        except Exception:
+            pass
+
     def update_file(self, fid, f):
         vals = self._file_to_db(f)
         vals.pop('id', None)
@@ -482,34 +535,45 @@ class Database:
             s['id'] = _uid()
             s['createdAt'] = now
             s['updatedAt'] = now
-            tks[i]['sid'] = ss[i]['id']
-        for t in tks:
+        # 谈话与学生显式关联（对应旧版示例数据）
+        LINK = [0, 1, 2, 3, 4, 5, 0, 2]
+        for i, t in enumerate(tks):
             t['id'] = _uid()
             t['createdAt'] = now
             t['updatedAt'] = now
             t['done'] = False
             t['followDate'] = t['followDate'] or ''
             t['content'] = t['content'] or ''
-            sname = ''
-            for s in ss:
-                if s['id'] == t['sid']:
-                    sname = s['name']
-            t['sname'] = sname
+            t['sid'] = ss[LINK[i]]['id']
+            t['sname'] = ss[LINK[i]]['name']
         for f in fls:
             f['id'] = _uid()
             f['createdAt'] = now
             f['updatedAt'] = now
+        # 追加语义：跳过已存在学号的学生（及其关联谈话），避免唯一性冲突
+        exist = self._xh_owner()
+        skip_ids = set()
         for s in ss:
+            if s['xh'] and s['xh'] in exist:
+                skip_ids.add(s['id'])
+                continue
             vals = self._student_to_db(s)
             cols = ', '.join(vals.keys())
             ph = ', '.join(['?'] * len(vals))
             self._exec('INSERT INTO students (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
         for t in tks:
+            if t['sid'] in skip_ids:
+                continue
             vals = self._talk_to_db(t)
             cols = ', '.join(vals.keys())
             ph = ', '.join(['?'] * len(vals))
             self._exec('INSERT INTO talks (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        exist_files = set()
+        for r in self._q('files'):
+            exist_files.add(r['name'])
         for f in fls:
+            if f['name'] in exist_files:
+                continue
             vals = self._file_to_db(f)
             cols = ', '.join(vals.keys())
             ph = ', '.join(['?'] * len(vals))

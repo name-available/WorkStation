@@ -18,12 +18,14 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from models.db import Database
+from models.db import Database, DB_PATH
 from controllers.api import handle_api
 
 HOST = '127.0.0.1'
 PORT = 8790
 VIEWS_DIR = os.path.join(BASE_DIR, 'views')
+# 支持环境变量 WS_DB 覆盖数据库路径（测试/备份用；默认 db/workstation.db）
+DB_FILE = os.environ.get('WS_DB') or DB_PATH
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -59,6 +61,12 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass  # 安静运行，不打印每一条访问日志
 
+    def end_headers(self):
+        # 静态页面/脚本每次重新校验（避免升级后浏览器仍用缓存旧版 JS）
+        if not self.path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-cache')
+        return super().end_headers()
+
 
 def _port_in_use(port):
     import socket
@@ -83,14 +91,14 @@ def main():
             print('未找到可用端口，请关闭占用程序后重试。')
             sys.exit(1)
 
-    DB = Database()
+    DB = Database(DB_FILE)
 
     httpd = HTTPServer((HOST, port), Handler)
     url = 'http://127.0.0.1:%d/' % port
     print('=' * 52)
     print('  辅导员工作站 · 本地版已启动')
     print('  请在浏览器打开：%s' % url)
-    print('  数据保存在：db/workstation.db（SQLite 数据库）')
+    print('  数据保存在：%s（SQLite 数据库）' % DB_FILE)
     print('  停止：关闭本窗口或按 Ctrl+C')
     print('=' * 52)
 

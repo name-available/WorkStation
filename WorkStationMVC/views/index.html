@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>辅导员工作站 WorkStation</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='4' width='20' height='16' rx='2' fill='%231b3a5b'/%3E%3Ccircle cx='12' cy='13' r='3.2' fill='%23fff'/%3E%3Cpath d='M8.5 18.5c.8-1.6 2-2.4 3.5-2.4s2.7.8 3.5 2.4' stroke='%23fff' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="lockScreen" hidden>
+  <form class="lock-card" id="lockForm">
+    <h2>辅导员工作站</h2>
+    <p>此工作站已设置访问密码，请输入后进入</p>
+    <input type="password" id="lockPass" placeholder="访问密码" autocomplete="off">
+    <div class="lock-err" id="lockErr"></div>
+    <button class="btn btn-p" style="width:100%;justify-content:center" type="submit">进入工作站</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <aside id="sidebar">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#6db3f2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12.8" r="2.9"/><path d="M9 17.4c.8-1.5 1.9-2.3 3-2.3s2.2.8 3 2.3"/></svg>
+      <div><div class="bname">辅导员工作站</div><div class="bsub">WorkStation · 本地版</div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <main id="main">
+    <header id="topbar">
+      <div>
+        <h1 id="viewTitle">工作台</h1>
+        <div class="sub" id="viewSub">今日概览与待办</div>
+      </div>
+      <div id="viewActions"></div>
+    </header>
+    <div id="content">
+      <section id="view-home" class="view"></section>
+      <section id="view-students" class="view"></section>
+      <section id="view-focus" class="view"></section>
+      <section id="view-talks" class="view"></section>
+      <section id="view-portrait" class="view"></section>
+      <section id="view-files" class="view"></section>
+      <section id="view-settings" class="view"></section>
+    </div>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="js/model.js"></script>
+<script src="js/view.js"></script>
+<script src="js/controller.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
