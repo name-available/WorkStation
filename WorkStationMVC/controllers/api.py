@@ -7,6 +7,7 @@
 import email
 import email.policy
 import json
+import os
 import re
 import sqlite3
 import urllib.parse
@@ -122,6 +123,51 @@ def _dispatch(handler, db, method):
 
     if method == 'GET' and res == 'state':
         _ok(handler, db)
+        return
+
+    # ---- 数据库连接信息（设置-连接数据库） ----
+    if method == 'GET' and res == 'dbinfo':
+        _p = os.path.abspath(db.path)
+        _sz = os.path.getsize(_p) if os.path.exists(_p) else 0
+        _st = db.state()
+        _ok(handler, db, {'db': {
+            'path': _p,
+            'name': os.path.basename(_p),
+            'size': _sz,
+            'sizeMB': round(_sz / 1048576.0, 2),
+            'students': len(_st.get('students') or []),
+            'talks': len(_st.get('talks') or []),
+            'files': len(_st.get('files') or []),
+        }})
+        return
+
+    # ---- 导出 db 格式备份（下载数据库文件副本） ----
+    if method == 'GET' and res == 'backup' and len(parts) >= 3 and parts[2] == 'db':
+        import datetime
+        _p = db.path
+        if not os.path.exists(_p):
+            _err(handler, 404, '数据库文件不存在')
+            return
+        try:
+            with open(_p, 'rb') as _f:
+                _data = _f.read()
+        except Exception as e:  # noqa
+            _err(handler, 500, '读取数据库文件失败：' + str(e))
+            return
+        _fname = '辅导员工作站数据库备份_%s.db' % datetime.date.today().isoformat()
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/octet-stream')
+        handler.send_header('Content-Disposition',
+                            "attachment; filename*=UTF-8''%s" % urllib.parse.quote(_fname))
+        handler.send_header('Content-Length', str(len(_data)))
+        handler.end_headers()
+        handler.wfile.write(_data)
+        return
+
+    # ---- 打开数据库所在文件夹 ----
+    if method == 'POST' and res == 'db' and len(parts) >= 3 and parts[2] == 'openfolder':
+        db.open_db_dir()
+        _ok(handler, db, {'ok': True})
         return
 
     if method != 'GET' and not _check_origin(handler):

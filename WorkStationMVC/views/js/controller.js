@@ -98,6 +98,26 @@ function saveTalk(id){
     }catch(e){ toast(e.message,'err'); }
   })();
 }
+function viewTalk(id){
+  var t=Model.talks().find(function(x){ return x.id===id; }); if(!t) return;
+  var s=t.sid ? Model.students().find(function(x){ return x.id===t.sid; }) : null;
+  var li=levelInfo(t.level||'g');
+  var follow = t.followDate ? (t.done ? '已完成' : ('待回访 '+ymd(t.followDate))) : '未设置';
+  openModal('<h2>谈话记录详情</h2>'
+    +'<div class="form-grid" style="margin-top:12px">'
+    +'<div class="form-item"><label>谈话时间</label><div>'+ymd(t.time)+'</div></div>'
+    +'<div class="form-item"><label>学生</label><div>'+(s?esc(s.name)+' · '+esc(s.xh)+' · '+esc(s.cls||'未填班级'):'（已删除学生）')+'</div></div>'
+    +'<div class="form-item"><label>谈话人</label><div>'+esc(t.talker||'—')+'</div></div>'
+    +'<div class="form-item"><label>谈话地点</label><div>'+esc(t.place||'—')+'</div></div>'
+    +'<div class="form-item"><label>话题</label><div>'+esc(t.topic||'未分类')+'</div></div>'
+    +'<div class="form-item"><label>等级</label><div><span class="badge '+li[2]+'">'+li[0]+'</span></div></div>'
+    +'</div>'
+    +'<div class="form-item" style="margin-top:12px"><label>学生特点</label><div style="font-size:14px;color:#3d4c5e">'+esc(t.traits||'—')+'</div></div>'
+    +'<div class="form-item" style="margin-top:12px"><label>谈话内容</label><div style="font-size:14px;line-height:1.7;color:#3d4c5e;white-space:pre-wrap">'+esc(t.content||'—')+'</div></div>'
+    +'<div class="form-item" style="margin-top:12px"><label>后续跟进</label><div style="font-size:14px;color:#3d4c5e">'+esc(t.followUp||'—')+'</div></div>'
+    +'<div class="form-item" style="margin-top:12px"><label>回访状态</label><div style="font-size:14px;color:#3d4c5e">'+follow+'</div></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button><button class="btn btn-p" onclick="closeModal();openTalkForm(\''+id+'\')">编辑</button></div>');
+}
 function delTalk(id){
   var t=Model.talks().find(function(x){ return x.id===id; }); if(!t) return;
   if(!confirmDlg('确定删除这条谈话记录吗？')) return;
@@ -434,7 +454,34 @@ function saveDicts(){
   })();
 }
 function openDbDir(){
-  toast('数据库文件位于项目文件夹 db/workstation.db，可在访达中打开');
+  (async function(){
+    try{ await Model.save('POST','/api/db/openfolder'); }
+    catch(e){ toast(e.message||'已打开数据库所在文件夹（访达）','err'); }
+  })();
+}
+function connectDb(){
+  (async function(){
+    try{
+      var r=await Model._api('GET','/api/dbinfo');
+      var d=r.db||r;
+      var info=document.getElementById('dbConnInfo');
+      if(info) info.innerHTML='<span style="color:var(--green)">已连接数据库：</span>'+esc(d.path)+'（'+d.sizeMB+' MB）· 学生 '+d.students+' 人、谈话 '+d.talks+' 条、文件 '+d.files+' 个';
+      toast('数据库连接成功，数据已加载至工作站');
+    }catch(e){ toast('连接失败：'+e.message,'err'); }
+  })();
+}
+function exportDbBackup(){
+  (async function(){
+    try{
+      var res=await fetch('/api/backup/db');
+      if(!res.ok){ var j; try{j=await res.json();}catch(e){} throw new Error((j&&j.error)||('导出失败（'+res.status+'）')); }
+      var blob=await res.blob();
+      download('辅导员工作站数据库备份_'+todayISO()+'.db', blob, 'application/octet-stream');
+      var meta=Model.meta(); meta.lastBackup=todayISO();
+      await Model.save('PUT','/api/settings',{settings:Model.settings(), meta:meta});
+      RENDERERS.settings(); toast('已导出 db 格式备份');
+    }catch(e){ toast(e.message,'err'); }
+  })();
 }
 function exportBackup(){
   (async function(){

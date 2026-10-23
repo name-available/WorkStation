@@ -436,7 +436,7 @@ function renderFocusTable(){
   list.forEach(function(s){
     var tags=(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('');
     html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+focusFilesOf(s.id).length+'</td>'
-      +'<td><div class="ops"><button onclick="selectFocusStudent(\''+s.id+'\')">调整 / 上传</button><button onclick="goPortrait(\''+s.id+'\')">画像</button></div></td></tr>';
+      +'<td><div class="ops"><button onclick="selectFocusStudent(\''+s.id+'\')">调整</button><button onclick="focusUpload(\''+s.id+'\')">上传</button><button onclick="goPortrait(\''+s.id+'\')">画像</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
   html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名重点关注学生</div>';
@@ -448,7 +448,12 @@ function renderFocusTable(){
 function selectFocusStudent(sid){
   F.focus.sid=sid;
   renderFocusTable();
-  var s=getStudent(sid); if(s){ renderFocusDetail(s); var el=document.getElementById('focusDetail'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }
+  var s=getStudent(sid); if(s){ renderFocusDetail(s); var el=document.getElementById('focusAdjustBox'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); setTimeout(function(){ if(el) el.scrollIntoView({behavior:'auto',block:'start'}); }, 350); }
+}
+function focusUpload(sid){
+  F.focus.sid=sid;
+  renderFocusTable();
+  var s=getStudent(sid); if(s){ renderFocusDetail(s); var el=document.getElementById('focusUploadBox'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); setTimeout(function(){ if(el) el.scrollIntoView({behavior:'auto',block:'start'}); }, 350); }
 }
 function renderFocusDetail(s){
   var checked={}; normConcerns(s.concerns).forEach(function(c){ checked[c.t]=c.l; });
@@ -463,14 +468,14 @@ function renderFocusDetail(s){
       +'</div>';
   }).join('');
   var fls=focusFilesOf(s.id);
-  var html='<div class="card focus-detail">'
+  var html='<div class="card focus-detail" id="focusAdjustBox">'
     +'<h3>'+esc(s.name)+' · 重点关注调整</h3>'
     +'<div class="m-sub">设置或解除该生在 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类上的关注级别。保存后同步到学生台账与画像。</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0">'
     +concernHtml
     +'<button class="btn btn-p" onclick="saveFocusConcerns(\''+s.id+'\')">保存关注调整</button></div>'
     +'</div>';
-  html+='<div class="card"><h3>上传关注材料（'+esc(s.name)+'）</h3>'
+  html+='<div class="card" id="focusUploadBox"><h3>上传关注材料（'+esc(s.name)+'）</h3>'
     +'<div class="m-sub">支持 证明材料 / 谈话记录 / 家访记录 / 一生一策 等文件。上传后存入项目内「重点关注文件」文件夹，并自动改名为 <b>YYYYMMDD-姓名-文件类型.扩展名</b>；文件本体只保存在本机。</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px">'
     +'<div class="form-item" style="margin:0"><label>文件类型</label><select id="fcTypeSel">'+FOCUS_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select></div>'
@@ -739,7 +744,7 @@ function renderTalksTable(){
     html+='<tr><td>'+ymd(t.time)+'</td><td>'+stu+'</td><td>'+esc(t.talker||'—')+'</td><td>'+esc(t.place||'—')+'</td><td>'+esc(t.topic||'未分类')+'</td><td><span class="badge '+li[2]+'">'+li[0]+'</span></td>'
       +'<td style="color:var(--muted)">'+esc(String(t.content||'').replace(/\n/g,' ').slice(0,42))+(t.content&&t.content.length>42?'…':'')+'</td>'
       +'<td>'+follow+'</td>'
-      +'<td><div class="ops"><button onclick="openTalkForm(\''+t.id+'\')">编辑</button><button onclick="delTalk(\''+t.id+'\')">删除</button></div></td></tr>';
+      +'<td><div class="ops"><button onclick="viewTalk(\''+t.id+'\')">查看</button><button onclick="openTalkForm(\''+t.id+'\')">编辑</button><button onclick="delTalk(\''+t.id+'\')">删除</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
   html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条记录（共 '+Model.talks().length+' 条）</div>';
@@ -815,18 +820,8 @@ function renderPortrait(sid){
   var talks=Model.talks().filter(function(t){ return t.sid===sid; }).sort(function(a,b){ return (b.time||'')<(a.time||'')?-1:1; });
   var files=Model.files().filter(function(f){ return (f.name||'').indexOf(s.name)>-1 || (f.name||'').indexOf(s.xh)>-1; });
   var tm=todayISO();
-  var warns=[];
-  if(talks.length && talks[0].level==='r') warns.push('最近一次谈话被标记为“重点关注”，建议近期持续跟进并留意状态变化。');
-  var psych=0; talks.forEach(function(t){ if((t.topic||'').indexOf('心理')>-1 && (t.level==='a'||t.level==='r')) psych++; });
-  if(psych>=2) warns.push('心理健康话题已多次标记需关注，建议结合学校心理健康中心资源协同跟进。');
-  if(concernHas(s,'心理')) warns.push('台账已标记“心理”特殊关注，请注意保护谈话记录隐私，仅本人可见。');
-  if(concernHas(s,'经济')) warns.push('台账已标记“经济”特殊关注，可在评奖评优与资助节点优先提醒该生。');
 
   var html='';
-  warns.forEach(function(w){
-    html+='<div class="warn-card">'+'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'+esc(w)+'</div>';
-  });
-
   html+='<div class="card portrait-head">'
     +'<div class="avatar">'+esc((s.name||'?').charAt(0))+'</div>'
     +'<div style="min-width:0">'
@@ -1025,15 +1020,18 @@ RENDERERS.settings = function(){
     +'<div class="form-item"><label>文件分类字典</label><textarea id="setCats" rows="6">'+(catDict().map(esc).join('\n'))+'</textarea></div>'
     +'</div><div style="margin-top:14px"><button class="btn btn-p" onclick="saveDicts()">保存字典</button></div></div>';
   html+='<div class="card"><h3>数据存储（SQLite 数据库）</h3>'
-    +'<p style="margin:0 0 12px;font-size:13px;color:var(--muted)">全部业务数据（学生台账、谈心谈话、文件索引、画像标签、设置）均保存在本机 SQLite 数据库文件 <b>db/workstation.db</b> 中。每次新增、修改、删除数据后自动写入数据库，无需手动保存或导出。</p>'
+    +'<p style="margin:0 0 12px;font-size:13px;color:var(--muted)">全部业务数据（学生台账、谈心谈话、文件索引、画像标签、设置）均保存在本机 SQLite 数据库文件中。每次新增、修改、删除数据后自动写入数据库，无需手动保存或导出。</p>'
+    +'<div id="dbConnInfo" style="margin-bottom:10px;font-size:13px;color:var(--muted)">未连接数据库，点击下方按钮连接本机 workstation.db。</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    +'<button class="btn btn-p" onclick="openDbDir()">打开数据库所在文件夹</button>'
+    +'<button class="btn btn-p" onclick="connectDb()">连接数据库</button>'
+    +'<button class="btn btn-g" onclick="openDbDir()">打开数据库所在文件夹</button>'
     +'</div></div>';
   html+='<div class="card"><h3>数据保险与清理（可选）</h3>'
-    +'<p style="margin:0 0 10px;font-size:13px;color:var(--muted)">数据库已自动持久化，无需手动备份。以下操作用于换机迁移、恢复或清理。</p>'
+    +'<p style="margin:0 0 10px;font-size:13px;color:var(--muted)">数据库已自动持久化，无需手动备份。以下操作用于版本升级前保险、换机迁移、恢复或清理。</p>'
     +(meta.lastBackup?'<p style="margin:0 0 10px;font-size:13px;color:var(--green)">上次手动导出：'+ymd(meta.lastBackup)+'</p>':'')
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    +'<button class="btn btn-g" onclick="exportBackup()">导出备份（换机用）</button>'
+    +'<button class="btn btn-g" onclick="exportDbBackup()">导出 db 格式备份</button>'
+    +'<button class="btn btn-g" onclick="exportBackup()">导出 JSON 备份</button>'
     +'<button class="btn btn-g" onclick="importBackup()">导入备份</button>'
     +'<button class="btn btn-g" onclick="seedDemo()">载入示例数据</button>'
     +'<button class="btn btn-d" onclick="clearAllData()">清空全部数据</button>'

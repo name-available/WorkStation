@@ -514,6 +514,16 @@ class Database:
         except Exception:
             pass
 
+    def open_db_dir(self):
+        """在访达中打开数据库文件所在文件夹（仅本机）。"""
+        _d = os.path.dirname(os.path.abspath(self.path))
+        os.makedirs(_d, exist_ok=True)
+        try:
+            import subprocess
+            subprocess.Popen(['open', _d])
+        except Exception:
+            pass
+
     # ---------- 奖助管理 ----------
     def add_aid_project(self, p):
         p = dict(p)
