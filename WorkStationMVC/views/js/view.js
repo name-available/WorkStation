@@ -13,11 +13,10 @@ function ymd(dateStr){ if(!dateStr) return '—'; var p=String(dateStr).split('-
 
 /* ---------- 字典与常量 ---------- */
 var CONCERN_TYPES=['心理','学业','思政','经济'];
-var CONCERN_LEVELS=['红','橙','黄'];   // 学业 / 思政 / 经济 三级
-var PSYCH_LEVELS=['严重','一般'];      // 心理类两级（v2.1）
-var PSYCH_LEGACY=['红','橙','黄'];     // 兼容 v2.1 前存量心理旧值
+var CONCERN_LEVELS=['红','橙','黄'];             // 学业 / 思政 / 经济 三级
+var PSYCH_LEVELS=['红','橙','黄','严重','一般']; // 心理类五级（v2.2）
 function levelsOf(t){ return t==='心理' ? PSYCH_LEVELS : CONCERN_LEVELS; }
-function levelValid(t,l){ return t==='心理' ? (PSYCH_LEVELS.indexOf(l)>-1 || PSYCH_LEGACY.indexOf(l)>-1) : CONCERN_LEVELS.indexOf(l)>-1; }
+function levelValid(t,l){ return t==='心理' ? PSYCH_LEVELS.indexOf(l)>-1 : CONCERN_LEVELS.indexOf(l)>-1; }
 function levelDefault(t){ return t==='心理' ? '一般' : '黄'; }
 function levelInfo(lv){ if(lv==='r') return ['重点关注','r','badge-r']; if(lv==='a') return ['需关注','a','badge-a']; return ['一般','g','badge-g']; }
 function normConcerns(list){
@@ -378,7 +377,7 @@ function openStudentForm(id){
     +'<div class="form-item"><label>母亲工作单位</label><input id="sMWork" value="'+esc(v.mWork)+'"></div>'
     +'<div class="form-item"><label>母亲职务</label><input id="sMPost" value="'+esc(v.mPost)+'"></div>'
     +'<div class="form-item"><label>母亲政治面貌</label><input id="sMZzmm" value="'+esc(v.mZzmm)+'"></div>'
-    +'<div class="form-item form-full"><div style="font-size:12.5px;color:var(--muted);background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 12px">重点关注（心理：严重 / 一般；学业 / 思政 / 经济：红 / 橙 / 黄）已迁移至「重点关注」板块统一调整。当前标记：'+focusTags+'</div></div>'
+    +'<div class="form-item form-full"><div style="font-size:12.5px;color:var(--muted);background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 12px">重点关注（心理：红 / 橙 / 黄 / 严重 / 一般；学业 / 思政 / 经济：红 / 橙 / 黄）已迁移至「重点关注」板块统一调整。当前标记：'+focusTags+'</div></div>'
     +'<div class="form-item form-full"><label>备注</label><textarea id="sNote" rows="2">'+esc(v.note)+'</textarea></div>'
     +'</div>'
     +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveStudent(\''+(id||'')+'\')">保存</button></div>');
@@ -391,13 +390,12 @@ function focusFilesOf(sid){ return Model.files().filter(function(f){ return f.ca
 function lvlRank(l){ return (l==='红'||l==='严重')?0:(l==='橙'?1:2); }
 function focusMaxLevel(s){ var r=2,i; for(i=0;i<(s.concerns||[]).length;i++){ var k=lvlRank(s.concerns[i].l); if(k<r) r=k; } return r; }
 RENDERERS.focus = function(){
-  var acts='<button class="btn btn-p" onclick="openFocusFolder()">打开重点关注文件文件夹</button>';
+  var acts='<button class="btn btn-p" onclick="importConcernsModal()">批量导入重点关注</button><button class="btn btn-g" onclick="openFocusFolder()">打开重点关注文件文件夹</button>';
   document.getElementById('viewActions').innerHTML=acts;
   var list=focusStudents();
   var cnt={};
-  function lvNorm(t,l){ return (t==='心理'&&PSYCH_LEGACY.indexOf(l)>-1) ? (l==='红'?'严重':'一般') : l; } // 旧心理值仅统计归并展示，不改数据
   CONCERN_TYPES.forEach(function(t){ cnt[t]={}; levelsOf(t).forEach(function(l){ cnt[t][l]=0; }); });
-  list.forEach(function(s){ (s.concerns||[]).forEach(function(c){ var L=lvNorm(c.t,c.l); if(cnt[c.t]&&cnt[c.t][L]!==undefined) cnt[c.t][L]++; }); });
+  list.forEach(function(s){ (s.concerns||[]).forEach(function(c){ if(cnt[c.t]&&cnt[c.t][c.l]!==undefined) cnt[c.t][c.l]++; }); });
   var html='<div class="focus-stats">';
   CONCERN_TYPES.forEach(function(t){
     html+='<div class="focus-stat"><div class="k">'+t+'</div><div class="v">'
@@ -434,7 +432,7 @@ function renderFocusTable(){
   list.sort(function(a,b){ var ra=focusMaxLevel(a), rb=focusMaxLevel(b); if(ra!==rb) return ra-rb; return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
   var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:12%"><col style="width:26%"><col style="width:10%"><col style="width:32%"></colgroup>'
     +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>重点关注</th><th>材料数</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注。')+'</td></tr>';
+  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注，或使用「批量导入重点关注」按学号导入。')+'</td></tr>';
   list.forEach(function(s){
     var tags=(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('');
     html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+focusFilesOf(s.id).length+'</td>'
@@ -454,8 +452,6 @@ function selectFocusStudent(sid){
 }
 function renderFocusDetail(s){
   var checked={}; normConcerns(s.concerns).forEach(function(c){ checked[c.t]=c.l; });
-  // 心理旧级别（红/橙/黄）在表单中归一为 严重/一般 回显（红→严重，橙/黄→一般）；保存后即为新级别
-  if(checked['心理'] && PSYCH_LEGACY.indexOf(checked['心理'])>-1) checked['心理'] = checked['心理']==='红' ? '严重' : '一般';
   var lvCss={'红':'var(--red)','橙':'var(--amber)','黄':'#a37f1f','严重':'var(--red)','一般':'#a37f1f'};
   var concernHtml=CONCERN_TYPES.map(function(t){
     return '<div style="display:flex;align-items:center;gap:6px;margin:5px 0;flex-wrap:wrap"><span style="width:40px;font-size:14px;color:#3d4c5e">'+t+'</span>'
@@ -469,7 +465,7 @@ function renderFocusDetail(s){
   var fls=focusFilesOf(s.id);
   var html='<div class="card focus-detail">'
     +'<h3>'+esc(s.name)+' · 重点关注调整</h3>'
-    +'<div class="m-sub">设置或解除该生在 心理（严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类上的关注级别。保存后同步到学生台账与画像。</div>'
+    +'<div class="m-sub">设置或解除该生在 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类上的关注级别。保存后同步到学生台账与画像。</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0">'
     +concernHtml
     +'<button class="btn btn-p" onclick="saveFocusConcerns(\''+s.id+'\')">保存关注调整</button></div>'
@@ -810,6 +806,10 @@ function goPortrait(id){
   F.portrait.sid=id;
   go('portrait');
 }
+function goFocusAdd(id){
+  F.focus.sid=id;
+  go('focus');
+}
 function renderPortrait(sid){
   var s=getStudent(sid); if(!s) return;
   var talks=Model.talks().filter(function(t){ return t.sid===sid; }).sort(function(a,b){ return (b.time||'')<(a.time||'')?-1:1; });
@@ -845,6 +845,7 @@ function renderPortrait(sid){
     +'</div>'
     +'<div style="margin-top:12px"><span style="font-size:13px;color:var(--muted);margin-right:6px">重点关注</span>'
     +((s.concerns||[]).length?(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join(''):'<span style="color:var(--muted);font-size:13px">未标记</span>')
+    +' <button class="btn btn-p btn-xs" onclick="goFocusAdd(\''+s.id+'\')">新增 / 调整重点关注</button>'
     +'</div>'
     +'<div style="margin-top:8px"><span style="font-size:13px;color:var(--muted);margin-right:6px">画像标签</span>'
     +((portraitTagsOf(s.id)).length?portraitTagsOf(s.id).map(function(c){ return '<span class="tag tag-其他">'+esc(c)+'</span>'; }).join(''):'<span style="color:var(--muted);font-size:13px">暂无，可手动补充</span>')
@@ -1055,7 +1056,7 @@ function setPasswordModal(){
 
 /* ---------- 学生导入预览 ---------- */
 function importStudentsModal(){
-  openModal('<h2>导入学生信息</h2><div class="m-sub">支持 CSV 文件（含 Excel 另存的 CSV，自动识别 UTF-8 / GBK 编码），或从 Excel 直接复制粘贴。表头请使用下载的模板：学号、姓名、性别、籍贯、班级、宿舍、民族、政治面貌、通讯地址、QQ、电话，及父亲/母亲姓名、联系方式、工作单位、职务、政治面貌，另含“特殊关注”“备注”两列。特殊关注填写格式“类型:级别”，多项用分号分隔，如 心理:严重;学业:橙（类型限 心理/学业/思政/经济；心理级别限 严重/一般，学业/思政/经济级别限 红/橙/黄）。所有信息都允许缺失；学号必须唯一，空行与学号重复的行会跳过并在下方列出明细。</div>'
+  openModal('<h2>导入学生信息</h2><div class="m-sub">支持 CSV 文件（含 Excel 另存的 CSV，自动识别 UTF-8 / GBK 编码），或从 Excel 直接复制粘贴。表头请使用下载的模板：学号、姓名、性别、籍贯、班级、宿舍、民族、政治面貌、通讯地址、QQ、电话，及父亲/母亲姓名、联系方式、工作单位、职务、政治面貌，另含“特殊关注”“备注”两列。特殊关注填写格式“类型:级别”，多项用分号分隔，如 心理:严重;学业:橙（类型限 心理/学业/思政/经济；心理级别限 红/橙/黄/严重/一般，学业/思政/经济级别限 红/橙/黄）。所有信息都允许缺失；学号必须唯一，空行与学号重复的行会跳过并在下方列出明细。</div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
     +'<button class="btn btn-p" onclick="pickStudentCsv()">选择 CSV 文件</button>'
     +'<button class="btn btn-g" onclick="pasteStudentsModal()">从 Excel 粘贴</button>'

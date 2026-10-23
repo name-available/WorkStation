@@ -514,6 +514,119 @@ function downloadStudentTemplate(){
   toast('模板已下载（含一行示例，可删除）');
 }
 
+/* ---------- 重点关注：批量导入 ---------- */
+function importConcernsModal(){
+  openModal('<h2>批量导入重点关注</h2><div class="m-sub">支持 CSV 文件或从 Excel 直接复制粘贴。表头固定三列：<b>学号、类型、级别</b>，三项均必填。学号须与学生台账一致（自动绑定）；类型限 心理 / 学业 / 思政 / 经济；级别：心理类为 红 / 橙 / 黄 / 严重 / 一般 五级，学业 / 思政 / 经济为 红 / 橙 / 黄 三级。同一学生同一类型已有关注会被覆盖，其他类型保留。未匹配到台账学号、类型或级别无效的行会跳过并列出明细。</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
+    +'<button class="btn btn-p" onclick="pickConcernsCsv()">选择 CSV 文件</button>'
+    +'<button class="btn btn-g" onclick="pasteConcernsModal()">从 Excel 粘贴</button>'
+    +'<button class="btn btn-g" onclick="downloadConcernsTemplate()">下载导入模板</button>'
+    +'</div><div id="importPreview" style="max-height:300px;overflow:auto"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button></div>');
+}
+function pickConcernsCsv(){
+  openFilePicker(function(file){
+    var fr=new FileReader();
+    fr.onload=function(){ showConcernsImportPreview(decodeText(fr.result)); };
+    fr.readAsArrayBuffer(file);
+  }, '.csv,.txt');
+}
+function pasteConcernsModal(){
+  openModal('<h2>从 Excel 粘贴导入重点关注</h2><div class="m-sub">在 Excel 中选中三列表格区域（学号 / 类型 / 级别）并复制，粘贴到下方后点击“解析”。首行必须是表头。</div>'
+    +'<textarea id="pasteArea" rows="8" placeholder="在此粘贴 Excel 表格内容…" style="width:100%"></textarea>'
+    +'<div id="importPreview" style="max-height:280px;overflow:auto;margin-top:10px"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="doPasteConcerns()">解析并预览</button></div>');
+}
+function doPasteConcerns(){
+  var text=document.getElementById('pasteArea').value;
+  if(!text.trim()){ toast('粘贴内容为空','err'); return; }
+  showConcernsImportPreview(text);
+}
+function showConcernsImportPreview(text){
+  var box=document.getElementById('importPreview'); if(!box) return;
+  var delim=guessDelim(text);
+  var rows=parseDelimited(text, delim);
+  if(rows.length<2){ box.innerHTML='<div class="empty"><div class="big">—</div>未能解析出有效数据行，请确认首行为表头。</div>'; return; }
+  var colMap={};
+  rows[0].forEach(function(hd,ix){
+    var a=String(hd==null?'':hd).trim();
+    if(a==='学号'||a==='xh'||a==='XH') colMap.xh=ix;
+    if(a==='类型'||a==='type'||a==='关注类型') colMap.type=ix;
+    if(a==='级别'||a==='level') colMap.level=ix;
+  });
+  if(colMap.xh===undefined || colMap.type===undefined || colMap.level===undefined){
+    box.innerHTML='<div class="empty"><div class="big">—</div>未识别到“学号 / 类型 / 级别”表头（三列必须齐全）。</div>';
+    return;
+  }
+  var okTypes=['心理','学业','思政','经济'];
+  var okLv={'心理':['红','橙','黄','严重','一般'],'学业':['红','橙','黄'],'思政':['红','橙','黄'],'经济':['红','橙','黄']};
+  var records=[], skips=[];
+  for(var i=1;i<rows.length;i++){
+    var r=rows[i];
+    var xh=String(r[colMap.xh]==null?'':r[colMap.xh]).trim();
+    var type=String(r[colMap.type]==null?'':r[colMap.type]).trim();
+    var level=String(r[colMap.level]==null?'':r[colMap.level]).trim();
+    if(!xh && !type && !level){ continue; }
+    var reason='';
+    if(!xh) reason='学号为空';
+    else if(!type) reason='类型为空';
+    else if(!level) reason='级别为空';
+    else if(okTypes.indexOf(type)===-1) reason='类型无效（'+type+'），应为 心理/学业/思政/经济';
+    else if(okLv[type].indexOf(level)===-1) reason='级别无效（'+level+'），'+type+'类应为 '+okLv[type].join('/');
+    if(reason){ skips.push({ row:i+1, xh:xh, type:type, level:level, reason:reason }); continue; }
+    records.push({ xh:xh, type:type, level:level, row:i+1 });
+  }
+  window.__pendingConcerns=records;
+  window.__pendingConcernsSkips=skips;
+  var byXh={}; Model.students().forEach(function(s){ if(s.xh) byXh[s.xh]=s.name; });
+  var html='<div style="font-size:14px;margin-bottom:10px">解析完成：可导入 <b style="color:var(--green)">'+records.length+'</b> 条';
+  if(skips.length) html+='，跳过 <b style="color:var(--red)">'+skips.length+'</b> 条';
+  html+='</div>';
+  if(records.length){
+    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:22%"><col style="width:22%"><col style="width:20%"><col style="width:36%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>类型</th><th>级别</th><th>台账学生</th></tr></thead><tbody>';
+    records.slice(0,8).forEach(function(rec){
+      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.type)+'</td><td>'+esc(rec.level)+'</td><td>'+esc(byXh[rec.xh]||'—')+'</td></tr>';
+    });
+    if(records.length>8) html+='<tr><td colspan="4" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
+    html+='</tbody></table>';
+    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="confirmConcernsImport()">确认导入 '+records.length+' 条</button></div>';
+  } else {
+    html+='<div class="empty"><div class="big">—</div>没有可导入的关注记录（可能学号/类型/级别为空或格式不正确）。</div>';
+  }
+  if(skips.length){
+    html+='<div style="font-size:13px;margin-top:14px;color:var(--muted)"><b style="color:var(--red)">跳过明细（导入失败项，请核对后修改重导）：</b></div>'
+      +'<table style="table-layout:fixed;width:100%;font-size:12.5px"><colgroup><col style="width:15%"><col style="width:16%"><col style="width:14%"><col style="width:14%"><col style="width:41%"></colgroup><thead><tr style="background:#fdf3f3;color:var(--red)"><th style="padding:5px 8px;text-align:left">文件行号</th><th>学号</th><th>类型</th><th>级别</th><th>跳过原因</th></tr></thead><tbody>';
+    skips.slice(0,10).forEach(function(k){
+      html+='<tr><td style="padding:4px 8px;border-bottom:1px solid #f3e8e8">第 '+k.row+' 行</td><td>'+esc(k.xh||'—')+'</td><td>'+esc(k.type||'—')+'</td><td>'+esc(k.level||'—')+'</td><td>'+esc(k.reason)+'</td></tr>';
+    });
+    if(skips.length>10) html+='<tr><td colspan="5" style="padding:4px 8px;color:var(--muted)">… 其余 '+ (skips.length-10) +' 条略</td></tr>';
+    html+='</tbody></table>';
+  }
+  box.innerHTML=html;
+}
+function confirmConcernsImport(){
+  var list=window.__pendingConcerns||[];
+  var skips=window.__pendingConcernsSkips||[];
+  if(!list.length){ window.__pendingConcerns=null; window.__pendingConcernsSkips=null; closeModal(); return; }
+  (async function(){
+    try{
+      var json=await Model.save('POST','/api/import/concerns',{records:list});
+      window.__pendingConcerns=null;
+      window.__pendingConcernsSkips=null;
+      closeModal(); RENDERERS.focus();
+      var msg='已导入 '+json.imported+' 条重点关注';
+      if(json.skips && json.skips.length) msg+='，跳过 '+json.skips.length+' 条（未匹配学号或类型/级别无效，已在预览明细中列出）';
+      toast(msg);
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
+function downloadConcernsTemplate(){
+  var head='学号,类型,级别';
+  var sample='202600103,心理,严重\n202600105,经济,红';
+  download('重点关注导入模板.csv','\uFEFF'+head+'\n'+sample+'\n','text/csv;charset=utf-8');
+  toast('模板已下载（含示例行，可删除）');
+}
+
 /* ---------- 奖助管理：项目 ---------- */
 function openAidProjectForm(id){
   var p = id ? aidProject(id) : null;

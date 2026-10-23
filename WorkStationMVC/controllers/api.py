@@ -294,6 +294,13 @@ def _dispatch(handler, db, method):
         _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
         return
 
+    # ---- 批量导入重点关注（学号绑定台账 + 类型/级别校验） ----
+    if method == 'POST' and res == 'import' and len(parts) >= 3 and parts[2] == 'concerns':
+        records = body.get('records') or []
+        result = db.import_concerns(records)
+        _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
+        return
+
     # ---- 批量导入困难认定名单 ----
     if method == 'POST' and res == 'import' and len(parts) >= 3 and parts[2] == 'hardship':
         records = body.get('records') or []

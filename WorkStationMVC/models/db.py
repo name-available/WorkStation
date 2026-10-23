@@ -630,6 +630,50 @@ class Database:
             imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh})
         return {'imported': len(imported), 'skips': skips, 'names': imported}
 
+    def import_concerns(self, records):
+        """批量导入重点关注。records: [{xh, type, level}] → {imported, skips}。
+
+        学号与学生台账绑定；类型限 心理/学业/思政/经济；
+        级别：心理类为 红/橙/黄/严重/一般 五级，其余为 红/橙/黄 三级；
+        同一学生同一类型已有关注则覆盖级别，无则新增。
+        """
+        imported = []
+        skips = []
+        st = self.state()['students']
+        by_xh = {}
+        for s in st:
+            if s.get('xh'):
+                by_xh.setdefault(str(s['xh']).strip(), s)
+        valid_types = ('心理', '学业', '思政', '经济')
+        valid_levels = {'心理': ('红', '橙', '黄', '严重', '一般'),
+                        '学业': ('红', '橙', '黄'),
+                        '思政': ('红', '橙', '黄'),
+                        '经济': ('红', '橙', '黄')}
+        for idx, rec in enumerate(records, start=2):
+            xh = str(rec.get('xh') or '').strip()
+            ctype = str(rec.get('type') or '').strip()
+            level = str(rec.get('level') or '').strip()
+            if not xh and not ctype and not level:
+                continue
+            if not xh:
+                skips.append({'row': idx, 'reason': '学号为空'})
+                continue
+            stu = by_xh.get(xh)
+            if not stu:
+                skips.append({'row': idx, 'reason': '学号未匹配到台账学生（' + xh + '）'})
+                continue
+            if ctype not in valid_types:
+                skips.append({'row': idx, 'reason': '类型无效（' + (ctype or '空') + '），应为 心理/学业/思政/经济'})
+                continue
+            if level not in valid_levels[ctype]:
+                skips.append({'row': idx, 'reason': '级别无效（' + (level or '空') + '），' + ctype + '类应为 ' + '/'.join(valid_levels[ctype])})
+                continue
+            concerns = [c for c in (stu.get('concerns') or []) if c.get('t') != ctype]
+            concerns.append({'t': ctype, 'l': level})
+            self.update_student(stu['id'], dict(stu, concerns=concerns))
+            imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh, 'type': ctype, 'level': level})
+        return {'imported': len(imported), 'skips': skips, 'names': imported}
+
     def import_talks(self, records):
         """批量导入谈话。records: [{time, place, xh, name, topic, traits, content, note, talker}] → {imported, skips}。"""
         imported = []
