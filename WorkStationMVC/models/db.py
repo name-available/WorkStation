@@ -137,14 +137,22 @@ def _uid():
 
 
 def _norm_concerns(raw):
-    """把 concerns 规范化为 [{t,l}]（兼容旧数据：字符串 -> {t, 黄}）。"""
+    """把 concerns 规范化为 [{t,l}]（兼容旧数据：字符串 -> {t, 默认级别}）。
+
+    v2.1：心理类级别为 严重/一般 两级，并兼容旧值 红/橙/黄；其余类型为 红/橙/黄。
+    """
     out = []
     if not isinstance(raw, list):
         return out
     for c in raw:
         if isinstance(c, dict) and c.get('t'):
+            t = str(c['t'])
             lv = c.get('l')
-            out.append({'t': str(c['t']), 'l': lv if lv in ('红', '橙', '黄') else '黄'})
+            if t == '心理':
+                ok = lv in ('严重', '一般', '红', '橙', '黄')  # 后三者兼容存量旧数据
+                out.append({'t': t, 'l': lv if ok else '一般'})
+            else:
+                out.append({'t': t, 'l': lv if lv in ('红', '橙', '黄') else '黄'})
         elif isinstance(c, str) and c.strip():
             out.append({'t': c.strip(), 'l': '黄'})
     return out

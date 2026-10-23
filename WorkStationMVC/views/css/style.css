@@ -159,6 +159,8 @@ tbody tr:hover{background:#f6f9fc}
 .fc.红{background:var(--red-bg);color:var(--red)}
 .fc.橙{background:var(--amber-bg);color:var(--amber)}
 .fc.黄{background:#f6efd9;color:#a37f1f}
+.fc.严重{background:var(--red-bg);color:var(--red)}
+.fc.一般{background:#f6efd9;color:#a37f1f}
 .row-sel{background:#f0f6ff !important}
 .row-sel td{border-bottom-color:#dce9f8}
 .focus-detail{margin-top:18px}

@@ -13,17 +13,22 @@ function ymd(dateStr){ if(!dateStr) return '—'; var p=String(dateStr).split('-
 
 /* ---------- 字典与常量 ---------- */
 var CONCERN_TYPES=['心理','学业','思政','经济'];
-var CONCERN_LEVELS=['红','橙','黄'];
+var CONCERN_LEVELS=['红','橙','黄'];   // 学业 / 思政 / 经济 三级
+var PSYCH_LEVELS=['严重','一般'];      // 心理类两级（v2.1）
+var PSYCH_LEGACY=['红','橙','黄'];     // 兼容 v2.1 前存量心理旧值
+function levelsOf(t){ return t==='心理' ? PSYCH_LEVELS : CONCERN_LEVELS; }
+function levelValid(t,l){ return t==='心理' ? (PSYCH_LEVELS.indexOf(l)>-1 || PSYCH_LEGACY.indexOf(l)>-1) : CONCERN_LEVELS.indexOf(l)>-1; }
+function levelDefault(t){ return t==='心理' ? '一般' : '黄'; }
 function levelInfo(lv){ if(lv==='r') return ['重点关注','r','badge-r']; if(lv==='a') return ['需关注','a','badge-a']; return ['一般','g','badge-g']; }
 function normConcerns(list){
   if(!Array.isArray(list)) return [];
   return list.map(function(c){
-    if(c && typeof c==='object' && c.t) return { t:String(c.t), l:(CONCERN_LEVELS.indexOf(c.l)>-1?c.l:'黄') };
-    return { t:String(c==null?'':c), l:'黄' };
+    if(c && typeof c==='object' && c.t) return { t:String(c.t), l:(levelValid(c.t,c.l)?c.l:levelDefault(c.t)) };
+    return { t:String(c==null?'':c), l:levelDefault(String(c==null?'':c)) };
   }).filter(function(c){ return c.t; });
 }
 function concernLabel(c){ return (c.t||'')+(c.l?'·'+c.l:''); }
-function concernTagClass(c){ var l=c&&c.l; if(l==='红') return 'tag-红'; if(l==='橙') return 'tag-橙'; return 'tag-黄'; }
+function concernTagClass(c){ var l=c&&c.l; if(l==='红'||l==='严重') return 'tag-红'; if(l==='橙') return 'tag-橙'; return 'tag-黄'; }
 function concernHas(s,t){ return (s.concerns||[]).some(function(c){ return c.t===t; }); }
 function concernsToStr(list){ return normConcerns(list).map(function(c){ return c.t+':'+c.l; }).join(';'); }
 function concernsFromStr(str){
@@ -31,8 +36,11 @@ function concernsFromStr(str){
   if(!str) return out;
   String(str).split(/[;；,，、\n]/).forEach(function(seg){
     seg=String(seg).trim(); if(!seg) return;
-    var m=seg.match(/^(心理|学业|思政|经济|家庭|其他)\s*[:：\-—]?\s*(红|橙|黄)?/);
-    if(m) out.push({ t:m[1], l:(m[2]||'黄') });
+    var m=seg.match(/^(心理|学业|思政|经济|家庭|其他)\s*[:：\-—]?\s*(严重|一般|红|橙|黄)?/);
+    if(m){
+      var t=m[1], l=m[2]||levelDefault(t);
+      if(levelValid(t,l)) out.push({ t:t, l:l });
+    }
   });
   return out;
 }
@@ -172,13 +180,11 @@ function fbBars(rows){
 }
 function drawCharts(){
   var st=Model.students(), tk=Model.talks(), i;
-  function counts(arr,key){ var o={}; arr.forEach(function(x){ var k=x[key]||'未分类'; o[k]=(o[k]||0)+1; }); return Object.keys(o).map(function(k){ return [k,o[k]]; }).sort(function(a,b){ return b[1]-a[1]; }); }
+  function counts(arr,key){ var o={}; arr.forEach(function(x){ var k=x[key]||'未填写'; if(k===''||k===' '||k==='—') k='未填写'; o[k]=(o[k]||0)+1; }); return Object.keys(o).map(function(k){ return [k,o[k]]; }).sort(function(a,b){ return b[1]-a[1]; }); }
   var zz=counts(st,'zzmm');
-  var lv=counts(tk,'level').map(function(r){ var n={g:'一般',a:'需关注',r:'重点关注'}[r[0]]||r[0]; return [n,r[1]]; });
   var tp=counts(tk,'topic').slice(0,6);
   if(!HAS_ECHARTS){
     var z=document.getElementById('chartZzmm'); if(z) z.innerHTML=fbBars(zz.length?zz:[['暂无数据',0]]);
-    var l=document.getElementById('chartLevel'); if(l) l.innerHTML=fbBars(lv.length?lv:[['暂无数据',0]]);
     var t=document.getElementById('chartTopic'); if(t) t.innerHTML=fbBars(tp.length?tp:[['暂无数据',0]]);
     return;
   }
@@ -186,7 +192,7 @@ function drawCharts(){
     function pie(data, colors){
       return { tooltip:{trigger:'item', confine:true},
         legend:{bottom:0, itemWidth:10, itemHeight:10, textStyle:{fontSize:12,color:'#64748b'}},
-        series:[{type:'pie', radius:['42%','68%'], center:['50%','44%'], data:data,
+        series:[{type:'pie', radius:['42%','68%'], center:['50%','44%'], data:data.map(function(r){ return {name:r[0], value:r[1]}; }),
           label:{show:true, formatter:'{b} {c}', fontSize:11, color:'#23303e'},
           itemStyle:{borderColor:'#fff', borderWidth:2},
           color: colors }] };
@@ -200,7 +206,6 @@ function drawCharts(){
     }
     var el,ch;
     el=document.getElementById('chartZzmm'); if(el){ ch=window.echarts.init(el); ch.setOption(pie(zz,['#2a6fb0','#2f9e63','#d98a2b','#7a8698','#2b8a83','#c4503e'])); }
-    el=document.getElementById('chartLevel'); if(el){ ch=window.echarts.init(el); ch.setOption(pie(lv,['#2f9e63','#d98a2b','#c4503e'])); }
     el=document.getElementById('chartTopic'); if(el){ ch=window.echarts.init(el); ch.setOption(bar(tp)); }
   }catch(e){}
 }
@@ -224,13 +229,12 @@ RENDERERS.home = function(){
     +stat('学生总数', fmtNum(st.length), false)
     +stat('男生 / 女生', male+' / '+female, false)
     +stat('本月谈话', fmtNum(monthCount), false)
-    +stat('谈话覆盖率', coverage+'%', false)
     +stat('待回访', fmtNum(pending.length), pending.length>0)
     +stat('重点关注', fmtNum(keyCount), keyCount>0)
     +'</div>';
 
   html+='<div class="section-title">数据概览</div><div class="chart-grid">';
-  html+=chartBoxHtml('chartZzmm','政治面貌分布')+chartBoxHtml('chartLevel','谈话关注等级')+chartBoxHtml('chartTopic','谈话话题 Top 6');
+  html+=chartBoxHtml('chartZzmm','政治面貌分布')+chartBoxHtml('chartTopic','谈话话题 Top 6');
   html+='</div>';
 
   html+='<div class="section-title">工作待办与最近记录</div><div class="panel-2">';
@@ -288,7 +292,7 @@ function concernOptions(){
   var h='';
   CONCERN_TYPES.forEach(function(t){
     h+='<option value="'+t+'">'+t+'（全部）</option>';
-    CONCERN_LEVELS.forEach(function(l){ h+='<option value="'+t+':'+l+'">'+t+'·'+l+'</option>'; });
+    levelsOf(t).forEach(function(l){ h+='<option value="'+t+':'+l+'">'+t+'·'+l+'</option>'; });
   });
   return h;
 }
@@ -374,7 +378,7 @@ function openStudentForm(id){
     +'<div class="form-item"><label>母亲工作单位</label><input id="sMWork" value="'+esc(v.mWork)+'"></div>'
     +'<div class="form-item"><label>母亲职务</label><input id="sMPost" value="'+esc(v.mPost)+'"></div>'
     +'<div class="form-item"><label>母亲政治面貌</label><input id="sMZzmm" value="'+esc(v.mZzmm)+'"></div>'
-    +'<div class="form-item form-full"><div style="font-size:12.5px;color:var(--muted);background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 12px">重点关注（心理 / 学业 / 思政 / 经济 × 红 / 橙 / 黄）已迁移至「重点关注」板块统一调整。当前标记：'+focusTags+'</div></div>'
+    +'<div class="form-item form-full"><div style="font-size:12.5px;color:var(--muted);background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 12px">重点关注（心理：严重 / 一般；学业 / 思政 / 经济：红 / 橙 / 黄）已迁移至「重点关注」板块统一调整。当前标记：'+focusTags+'</div></div>'
     +'<div class="form-item form-full"><label>备注</label><textarea id="sNote" rows="2">'+esc(v.note)+'</textarea></div>'
     +'</div>'
     +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveStudent(\''+(id||'')+'\')">保存</button></div>');
@@ -384,26 +388,27 @@ function openStudentForm(id){
 var FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '其他'];
 function focusStudents(){ return Model.students().filter(function(s){ return (s.concerns||[]).length>0; }); }
 function focusFilesOf(sid){ return Model.files().filter(function(f){ return f.category==='重点关注' && f.sid===sid; }); }
-function lvlRank(l){ return l==='红'?0:(l==='橙'?1:2); }
+function lvlRank(l){ return (l==='红'||l==='严重')?0:(l==='橙'?1:2); }
 function focusMaxLevel(s){ var r=2,i; for(i=0;i<(s.concerns||[]).length;i++){ var k=lvlRank(s.concerns[i].l); if(k<r) r=k; } return r; }
 RENDERERS.focus = function(){
   var acts='<button class="btn btn-p" onclick="openFocusFolder()">打开重点关注文件文件夹</button>';
   document.getElementById('viewActions').innerHTML=acts;
   var list=focusStudents();
   var cnt={};
-  CONCERN_TYPES.forEach(function(t){ cnt[t]={红:0,橙:0,黄:0}; });
-  list.forEach(function(s){ (s.concerns||[]).forEach(function(c){ if(cnt[c.t]&&cnt[c.t][c.l]!==undefined) cnt[c.t][c.l]++; }); });
+  function lvNorm(t,l){ return (t==='心理'&&PSYCH_LEGACY.indexOf(l)>-1) ? (l==='红'?'严重':'一般') : l; } // 旧心理值仅统计归并展示，不改数据
+  CONCERN_TYPES.forEach(function(t){ cnt[t]={}; levelsOf(t).forEach(function(l){ cnt[t][l]=0; }); });
+  list.forEach(function(s){ (s.concerns||[]).forEach(function(c){ var L=lvNorm(c.t,c.l); if(cnt[c.t]&&cnt[c.t][L]!==undefined) cnt[c.t][L]++; }); });
   var html='<div class="focus-stats">';
   CONCERN_TYPES.forEach(function(t){
     html+='<div class="focus-stat"><div class="k">'+t+'</div><div class="v">'
-      +CONCERN_LEVELS.map(function(l){ return '<span class="fc '+l+'">'+l+' '+cnt[t][l]+'</span>'; }).join('')
+      +levelsOf(t).map(function(l){ return '<span class="fc '+l+'">'+l+' '+cnt[t][l]+'</span>'; }).join('')
       +'</div></div>';
   });
   html+='</div>';
   html+='<div class="toolbar">'
     +'<input type="search" placeholder="按姓名 / 学号查询" value="'+esc(F.focus.q)+'" oninput="focusApply()" id="fcQ">'
     +'<select id="fcType" onchange="focusApply()"><option value="">全部类型</option>'+CONCERN_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select>'
-    +'<select id="fcLevel" onchange="focusApply()"><option value="">全部级别</option><option value="红">红</option><option value="橙">橙</option><option value="黄">黄</option></select>'
+    +'<select id="fcLevel" onchange="focusApply()"><option value="">全部级别</option><option value="严重">严重</option><option value="一般">一般</option><option value="红">红</option><option value="橙">橙</option><option value="黄">黄</option></select>'
     +'<select id="fcCls" onchange="focusApply()"><option value="">全部班级</option>'+clsOptions()+'</select>'
     +'</div><div id="focusBox"></div>';
   document.getElementById('view-focus').innerHTML=html;
@@ -429,7 +434,7 @@ function renderFocusTable(){
   list.sort(function(a,b){ var ra=focusMaxLevel(a), rb=focusMaxLevel(b); if(ra!==rb) return ra-rb; return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
   var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:12%"><col style="width:26%"><col style="width:10%"><col style="width:32%"></colgroup>'
     +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>重点关注</th><th>材料数</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置心理 / 学业 / 思政 / 经济四类关注（红 / 橙 / 黄三级）。')+'</td></tr>';
+  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注。')+'</td></tr>';
   list.forEach(function(s){
     var tags=(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('');
     html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+focusFilesOf(s.id).length+'</td>'
@@ -449,10 +454,12 @@ function selectFocusStudent(sid){
 }
 function renderFocusDetail(s){
   var checked={}; normConcerns(s.concerns).forEach(function(c){ checked[c.t]=c.l; });
-  var lvCss={'红':'var(--red)','橙':'var(--amber)','黄':'#a37f1f'};
+  // 心理旧级别（红/橙/黄）在表单中归一为 严重/一般 回显（红→严重，橙/黄→一般）；保存后即为新级别
+  if(checked['心理'] && PSYCH_LEGACY.indexOf(checked['心理'])>-1) checked['心理'] = checked['心理']==='红' ? '严重' : '一般';
+  var lvCss={'红':'var(--red)','橙':'var(--amber)','黄':'#a37f1f','严重':'var(--red)','一般':'#a37f1f'};
   var concernHtml=CONCERN_TYPES.map(function(t){
     return '<div style="display:flex;align-items:center;gap:6px;margin:5px 0;flex-wrap:wrap"><span style="width:40px;font-size:14px;color:#3d4c5e">'+t+'</span>'
-      +CONCERN_LEVELS.map(function(l){
+      +levelsOf(t).map(function(l){
         var on=checked[t]===l, col=lvCss[l];
         return '<label style="cursor:pointer;font-size:13px;padding:3px 12px;border-radius:999px;border:1px solid '+(on?col:'var(--border)')+';background:'+(on?col:'#fff')+';color:'+(on?'#fff':'var(--muted)')+'"><input type="radio" name="fcc_'+t+'" value="'+l+'"'+(on?' checked':'')+' style="display:none">'+l+'</label>';
       }).join('')
@@ -462,7 +469,7 @@ function renderFocusDetail(s){
   var fls=focusFilesOf(s.id);
   var html='<div class="card focus-detail">'
     +'<h3>'+esc(s.name)+' · 重点关注调整</h3>'
-    +'<div class="m-sub">设置或解除该生在 心理 / 学业 / 思政 / 经济 四类上的关注级别（红 / 橙 / 黄）。保存后同步到学生台账与画像。</div>'
+    +'<div class="m-sub">设置或解除该生在 心理（严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类上的关注级别。保存后同步到学生台账与画像。</div>'
     +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0">'
     +concernHtml
     +'<button class="btn btn-p" onclick="saveFocusConcerns(\''+s.id+'\')">保存关注调整</button></div>'
@@ -1048,7 +1055,7 @@ function setPasswordModal(){
 
 /* ---------- 学生导入预览 ---------- */
 function importStudentsModal(){
-  openModal('<h2>导入学生信息</h2><div class="m-sub">支持 CSV 文件（含 Excel 另存的 CSV，自动识别 UTF-8 / GBK 编码），或从 Excel 直接复制粘贴。表头请使用下载的模板：学号、姓名、性别、籍贯、班级、宿舍、民族、政治面貌、通讯地址、QQ、电话，及父亲/母亲姓名、联系方式、工作单位、职务、政治面貌，另含“特殊关注”“备注”两列。特殊关注填写格式“类型:级别”，多项用分号分隔，如 心理:红;学业:橙（类型限 心理/学业/思政/经济，级别限 红/橙/黄）。所有信息都允许缺失；学号必须唯一，空行与学号重复的行会跳过并在下方列出明细。</div>'
+  openModal('<h2>导入学生信息</h2><div class="m-sub">支持 CSV 文件（含 Excel 另存的 CSV，自动识别 UTF-8 / GBK 编码），或从 Excel 直接复制粘贴。表头请使用下载的模板：学号、姓名、性别、籍贯、班级、宿舍、民族、政治面貌、通讯地址、QQ、电话，及父亲/母亲姓名、联系方式、工作单位、职务、政治面貌，另含“特殊关注”“备注”两列。特殊关注填写格式“类型:级别”，多项用分号分隔，如 心理:严重;学业:橙（类型限 心理/学业/思政/经济；心理级别限 严重/一般，学业/思政/经济级别限 红/橙/黄）。所有信息都允许缺失；学号必须唯一，空行与学号重复的行会跳过并在下方列出明细。</div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
     +'<button class="btn btn-p" onclick="pickStudentCsv()">选择 CSV 文件</button>'
     +'<button class="btn btn-g" onclick="pasteStudentsModal()">从 Excel 粘贴</button>'
