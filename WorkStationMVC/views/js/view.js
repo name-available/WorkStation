@@ -108,23 +108,42 @@ function headerAlias(h){
 
 /* ---------- 视图常量与导航 ---------- */
 var VIEWS = {
-  home:'工作台', students:'学生台账', focus:'重点关注', talks:'谈心谈话', portrait:'学生画像', files:'文件中心', settings:'设置'
+  home:'工作台', students:'学生台账', focus:'重点关注', aid:'奖助管理', talks:'谈心谈话', portrait:'学生画像', files:'文件中心', settings:'设置'
 };
 var VIEW_SUBS = {
   home:'今日概览与待办', students:'学生信息导入与管理', focus:'关注调整与材料归档',
+  aid:'奖助项目 · 困难认定 · 申报发放',
   talks:'谈话记录、计划与跟进', portrait:'一人一档全景视图', files:'本地文件索引（仅文件名检索）', settings:'密码、字典、备份与数据'
 };
 var curView='home';
-var F = { students:{q:'',cls:'',gender:'',zzmm:'',concern:''}, focus:{q:'',type:'',level:'',cls:''}, talks:{q:'',topic:'',level:'',month:''}, files:{q:'',cat:'',tag:''}, portrait:{sid:''} };
+var F = { students:{q:'',cls:'',gender:'',zzmm:'',concern:''}, focus:{q:'',type:'',level:'',cls:''},
+  aid:{tab:'projects', pQ:'',pType:'',pTerm:'', hYear:'',hLevel:'',hQ:'', rPid:'',rCls:'',rLevel:'',rEco:'',rQ:''},
+  talks:{q:'',topic:'',level:'',month:''}, files:{q:'',cat:'',tag:''}, portrait:{sid:''} };
 var NAV_ICONS = {
   home:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.5"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.5"/><rect x="3" y="15" width="7.5" height="6" rx="1.5"/></svg>',
   students:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   focus:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  aid:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
   talks:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>',
   portrait:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M18 3l1.2 2.6 2.8.4-2 2 .5 2.8L18 9.8l-2.5 1 .5-2.8-2-2 2.8-.4z"/></svg>',
   files:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
   settings:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
 };
+/* 导出列定义（台账 / 谈话，用于导出配置弹窗） */
+var STUDENT_EXPORT_FIELDS = [
+  {k:'xh',l:'学号'},{k:'name',l:'姓名'},{k:'gender',l:'性别'},{k:'origin',l:'籍贯'},
+  {k:'cls',l:'班级'},{k:'dorm',l:'宿舍'},{k:'nation',l:'民族'},{k:'zzmm',l:'政治面貌'},
+  {k:'address',l:'通讯地址'},{k:'qq',l:'QQ'},{k:'phone',l:'电话'},
+  {k:'fName',l:'父亲姓名'},{k:'fPhone',l:'父亲联系方式'},{k:'fWork',l:'父亲工作单位'},{k:'fPost',l:'父亲职务'},{k:'fZzmm',l:'父亲政治面貌'},
+  {k:'mName',l:'母亲姓名'},{k:'mPhone',l:'母亲联系方式'},{k:'mWork',l:'母亲工作单位'},{k:'mPost',l:'母亲职务'},{k:'mZzmm',l:'母亲政治面貌'},
+  {k:'major',l:'专业'},{k:'family',l:'家庭情况'},
+  {k:'concerns',l:'重点关注'},{k:'note',l:'备注'},{k:'talkCount',l:'谈话数'}
+];
+var TALK_EXPORT_FIELDS = [
+  {k:'time',l:'谈话时间'},{k:'name',l:'姓名'},{k:'xh',l:'学号'},{k:'cls',l:'班级'},
+  {k:'talker',l:'谈话人'},{k:'place',l:'地点'},{k:'topic',l:'话题'},{k:'level',l:'关注等级'},
+  {k:'traits',l:'学生特点'},{k:'content',l:'谈话内容'},{k:'followUp',l:'跟进事项'},{k:'followDate',l:'跟进日期'},{k:'done',l:'完成状态'}
+];
 function renderNav(){
   var html='', k;
   for(k in VIEWS){
@@ -274,7 +293,7 @@ function concernOptions(){
   return h;
 }
 RENDERERS.students = function(){
-  var acts='<button class="btn btn-p" onclick="importStudentsModal()">导入学生</button><button class="btn btn-g" onclick="exportStudents()">导出 CSV</button><button class="btn btn-g" onclick="openStudentForm()">新增学生</button>';
+  var acts='<button class="btn btn-p" onclick="importStudentsModal()">导入学生</button><button class="btn btn-g" onclick="openExportDlg(\'students\')">导出</button><button class="btn btn-g" onclick="openStudentForm()">新增学生</button>';
   document.getElementById('viewActions').innerHTML=acts;
   var html='<div class="toolbar">'
     +'<input type="search" placeholder="按姓名 / 学号查询" value="'+esc(F.students.q)+'" oninput="studentsApply()" id="stuQ">'
@@ -478,9 +497,204 @@ function renderFocusDetail(s){
   });
 }
 
+/* ---------- 奖助管理 ---------- */
+var AID_TYPES = ['困难认定', '助学金', '奖学金', '勤工助学', '其他'];
+var HARD_LEVELS = ['特别困难', '困难', '一般困难'];
+var AID_FILE_TYPES = ['认定表', '佐证材料', '申请表', '证明材料', '其他'];
+var AID_REVIEWS = ['待评审', '通过', '未通过'];
+var AID_PAY = ['待发放', '已发放', '未通过'];
+function aidProjects(){ return (Model.data.aidProjects)||[]; }
+function hardshipRecords(){ return (Model.data.hardshipRecords)||[]; }
+function aidRecords(){ return (Model.data.aidRecords)||[]; }
+function aidProject(id){ return aidProjects().filter(function(p){ return p.id===id; })[0]||null; }
+function hardshipOf(sid, year){ return hardshipRecords().filter(function(h){ return h.sid===sid && h.year===(year||h.year); })[0]||null; }
+function aidFilesOf(sid, pid){ return Model.files().filter(function(f){ return f.category==='奖助材料' && f.sid===sid && (!pid || f.pid===pid); }); }
+function ecoLevelOf(sid){ var s=getStudent(sid); if(!s) return ''; var c=(s.concerns||[]).filter(function(x){ return x.t==='经济'; })[0]; return c?c.l:''; }
+function hardshipSuggest(h){
+  var want = h.level==='特别困难' ? '红' : (h.level==='困难' ? '橙' : '');
+  var cur = ecoLevelOf(h.sid);
+  var rank = {红:0, 橙:1, 黄:2, '':3};
+  return { want:want, cur:cur, need: !!want && rank[cur] > rank[want] };
+}
+RENDERERS.aid = function(){
+  var tabs=[['projects','奖助项目'],['hardship','困难认定'],['records','申报记录']];
+  var html='<div class="tabbar">'+tabs.map(function(t){ return '<button class="tab'+(F.aid.tab===t[0]?' on':'')+'" data-tab="'+t[0]+'" onclick="aidTab(\''+t[0]+'\')">'+t[1]+'</button>'; }).join('')+'</div><div id="aidBox"></div>';
+  document.getElementById('view-aid').innerHTML=html;
+  aidRenderTab();
+};
+function aidTab(t){ F.aid.tab=t; aidRenderTab(); }
+function aidRenderTab(){
+  if(F.aid.tab==='projects') aidRenderProjects();
+  else if(F.aid.tab==='hardship') aidRenderHardship();
+  else aidRenderRecords();
+  var btns=document.querySelectorAll('.tabbar .tab');
+  for(var i=0;i<btns.length;i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-tab')===F.aid.tab);
+}
+/* ---- 页签 A：奖助项目 ---- */
+function aidProjectsApply(){
+  F.aid.pQ=(document.getElementById('apQ').value||'').trim();
+  F.aid.pType=document.getElementById('apType').value;
+  F.aid.pTerm=document.getElementById('apTerm').value;
+  aidRenderProjects();
+}
+function aidRenderProjects(){
+  var acts='<button class="btn btn-p" onclick="openAidProjectForm()">新增项目</button>';
+  document.getElementById('viewActions').innerHTML=acts;
+  var list=aidProjects().slice(), q=F.aid.pQ.toLowerCase();
+  if(q) list=list.filter(function(p){ return (p.name||'').toLowerCase().indexOf(q)>-1; });
+  if(F.aid.pType) list=list.filter(function(p){ return p.type===F.aid.pType; });
+  if(F.aid.pTerm) list=list.filter(function(p){ return (p.term||'').indexOf(F.aid.pTerm)>-1; });
+  list.sort(function(a,b){ return (b.updatedAt||0)-(a.updatedAt||0); });
+  var terms={}; aidProjects().forEach(function(p){ if(p.term) terms[p.term]=1; });
+  var termOpts=Object.keys(terms).sort().reverse().map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('');
+  var counts={}; aidRecords().forEach(function(r){ counts[r.pid]=(counts[r.pid]||0)+1; });
+  var html='<div class="toolbar">'
+    +'<input type="search" placeholder="按项目名称查询" value="'+esc(F.aid.pQ)+'" oninput="aidProjectsApply()" id="apQ">'
+    +'<select id="apType" onchange="aidProjectsApply()"><option value="">全部类型</option>'+AID_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select>'
+    +'<select id="apTerm" onchange="aidProjectsApply()"><option value="">全部学年学期</option>'+termOpts+'</select>'
+    +'</div><div class="table-wrap"><table><colgroup><col style="width:18%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:8%"><col style="width:12%"></colgroup>'
+    +'<thead><tr><th>项目名称</th><th>类型</th><th>学年学期</th><th>金额</th><th>名额</th><th>截止日期</th><th>状态</th><th>申报人数</th><th>操作</th></tr></thead><tbody>';
+  if(!list.length) html+='<tr><td colspan="9">'+emptyBox('暂无奖助项目。点击右上角“新增项目”建立本学年奖助项目（助学金、奖学金、困难认定等）。')+'</td></tr>';
+  list.forEach(function(p){
+    html+='<tr><td style="font-weight:600">'+esc(p.name)+'</td><td><span class="badge badge-gray">'+esc(p.type||'—')+'</span></td><td>'+esc(p.term||'—')+'</td><td>'+esc(p.amount||'—')+'</td><td>'+(p.quota?p.quota:'—')+'</td><td>'+ymd(p.deadline)+'</td>'
+      +'<td><span class="badge '+(p.status==='进行中'?'badge-b':(p.status==='已截止'?'badge-gray':'badge-g'))+'">'+esc(p.status||'—')+'</span></td><td style="font-weight:600">'+(counts[p.id]||0)+'</td>'
+      +'<td><div class="ops"><button onclick="openAidProjectForm(\''+p.id+'\')">编辑</button><button onclick="delAidProject(\''+p.id+'\')">删除</button></div></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 个奖助项目</div>';
+  document.getElementById('aidBox').innerHTML=html;
+  document.getElementById('apQ').value=F.aid.pQ;
+  document.getElementById('apType').value=F.aid.pType;
+  document.getElementById('apTerm').value=F.aid.pTerm;
+}
+/* ---- 页签 B：困难认定 ---- */
+function aidHardshipApply(){
+  F.aid.hYear=document.getElementById('ahYear').value;
+  F.aid.hLevel=document.getElementById('ahLevel').value;
+  F.aid.hQ=(document.getElementById('ahQ').value||'').trim();
+  aidRenderHardship();
+}
+function aidRenderHardship(){
+  var acts='<button class="btn btn-p" onclick="openHardshipForm()">新增认定</button><button class="btn btn-g" onclick="openHardshipImport()">批量导入名单</button>';
+  document.getElementById('viewActions').innerHTML=acts;
+  var list=hardshipRecords().slice(), q=F.aid.hQ.toLowerCase();
+  if(q) list=list.filter(function(h){ var s=getStudent(h.sid); return s && ((s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1); });
+  if(F.aid.hYear) list=list.filter(function(h){ return h.year===F.aid.hYear; });
+  if(F.aid.hLevel) list=list.filter(function(h){ return h.level===F.aid.hLevel; });
+  list.sort(function(a,b){ return (b.updatedAt||0)-(a.updatedAt||0); });
+  var years={}; hardshipRecords().forEach(function(h){ if(h.year) years[h.year]=1; });
+  var html='<div class="toolbar">'
+    +'<input type="search" placeholder="按姓名 / 学号查询" value="'+esc(F.aid.hQ)+'" oninput="aidHardshipApply()" id="ahQ">'
+    +'<select id="ahYear" onchange="aidHardshipApply()"><option value="">全部学年</option>'+Object.keys(years).sort().reverse().map(function(y){ return '<option>'+esc(y)+'</option>'; }).join('')+'</select>'
+    +'<select id="ahLevel" onchange="aidHardshipApply()"><option value="">全部等级</option>'+HARD_LEVELS.map(function(l){ return '<option>'+esc(l)+'</option>'; }).join('')+'</select>'
+    +'</div><div class="table-wrap"><table><colgroup><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:10%"><col style="width:12%"><col style="width:18%"><col style="width:10%"><col style="width:16%"></colgroup>'
+    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>学年</th><th>等级</th><th>评议结果</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+  if(!list.length) html+='<tr><td colspan="8">'+emptyBox('暂无困难认定档案。可在右上角“新增认定”逐条登记，或“批量导入名单”按学号导入。')+'</td></tr>';
+  list.forEach(function(h){
+    var s=getStudent(h.sid)||{};
+    var eco=ecoLevelOf(h.sid);
+    html+='<tr><td style="font-weight:600">'+esc(s.name||'—')+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+esc(h.year||'—')+'</td>'
+      +'<td><span class="tag '+(h.level==='特别困难'?'tag-红':(h.level==='困难'?'tag-橙':'tag-黄'))+'">'+esc(h.level||'—')+'</span></td>'
+      +'<td>'+esc(h.review||'—')+'</td>'
+      +'<td><span class="badge '+(h.status==='已认定'?'badge-b':(h.status==='已归档'?'badge-gray':'badge-a'))+'">'+esc(h.status||'—')+'</span></td>'
+      +'<td><div class="ops"><button onclick="openHardshipForm(\''+h.id+'\')">编辑</button><button onclick="delHardship(\''+h.id+'\')">删除</button></div></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条认定档案。登记认定结果后，该生的成长时间轴与画像会自动联动；建议依据等级同步调整经济关注。</div>';
+  document.getElementById('aidBox').innerHTML=html;
+  document.getElementById('ahQ').value=F.aid.hQ;
+  document.getElementById('ahYear').value=F.aid.hYear;
+  document.getElementById('ahLevel').value=F.aid.hLevel;
+}
+/* ---- 页签 C：申报记录 ---- */
+function aidRecordsApply(){
+  F.aid.rPid=document.getElementById('arPid').value;
+  F.aid.rCls=document.getElementById('arCls').value;
+  F.aid.rLevel=document.getElementById('arLevel').value;
+  F.aid.rEco=document.getElementById('arEco').value;
+  F.aid.rQ=(document.getElementById('arQ').value||'').trim();
+  aidRenderRecords();
+}
+function aidRenderRecords(){
+  var acts='<button class="btn btn-p" onclick="exportAidRecords()">导出申报明细</button>';
+  document.getElementById('viewActions').innerHTML=acts;
+  var projects=aidProjects();
+  if(!projects.length){
+    document.getElementById('aidBox').innerHTML=emptyBox('还没有奖助项目。请先在「奖助项目」页签建立项目（如国家助学金、困难认定等），再登记申报记录。');
+    return;
+  }
+  if(!F.aid.rPid || !aidProject(F.aid.rPid)) F.aid.rPid=projects[0].id;
+  var pid=F.aid.rPid, p=aidProject(pid);
+  var records=aidRecords().filter(function(r){ return r.pid===pid; });
+  var bySid={}; records.forEach(function(r){ bySid[r.sid]=r; });
+  // 候选学生：未在该项目申报
+  var pool=Model.students().filter(function(s){ return !bySid[s.id]; });
+  var q=F.aid.rQ.toLowerCase();
+  if(q) pool=pool.filter(function(s){ return (s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1; });
+  if(F.aid.rCls) pool=pool.filter(function(s){ return s.cls===F.aid.rCls; });
+  if(F.aid.rLevel) pool=pool.filter(function(s){ return (hardshipOf(s.id)||{}).level===F.aid.rLevel; });
+  if(F.aid.rEco) pool=pool.filter(function(s){ return ecoLevelOf(s.id)===F.aid.rEco; });
+  pool.sort(function(a,b){ return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
+  var selList=records.slice();
+  if(F.aid.rCls) selList=selList.filter(function(r){ var s=getStudent(r.sid); return s && s.cls===F.aid.rCls; });
+  if(F.aid.rLevel) selList=selList.filter(function(r){ return (hardshipOf(r.sid)||{}).level===F.aid.rLevel; });
+  if(F.aid.rEco) selList=selList.filter(function(r){ return ecoLevelOf(r.sid)===F.aid.rEco; });
+  if(q) selList=selList.filter(function(r){ var s=getStudent(r.sid); return s && ((s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1); });
+  selList.sort(function(a,b){ var sa=getStudent(a.sid)||{}, sb=getStudent(b.sid)||{}; return (sa.cls||'').localeCompare(sb.cls||'') || (sa.xh||'').localeCompare(sb.xh||''); });
+  var html='<div class="aid-proj-head"><span style="font-weight:700">'+esc(p.name)+'</span> <span class="badge badge-b">'+esc(p.type||'')+'</span> <span style="color:var(--muted);font-size:13px">'+esc(p.term||'')+(p.amount?' · '+esc(p.amount):'')+' · 已申报 '+records.length+' 人</span></div>';
+  html+='<div class="toolbar">'
+    +'<select id="arPid" onchange="aidRecordsApply()">'+projects.map(function(x){ return '<option value="'+x.id+'">'+esc(x.name)+'</option>'; }).join('')+'</select>'
+    +'<input type="search" placeholder="按姓名 / 学号查询" value="'+esc(F.aid.rQ)+'" oninput="aidRecordsApply()" id="arQ">'
+    +'<select id="arCls" onchange="aidRecordsApply()"><option value="">全部班级</option>'+clsOptions()+'</select>'
+    +'<select id="arLevel" onchange="aidRecordsApply()"><option value="">全部困难等级</option>'+HARD_LEVELS.map(function(l){ return '<option>'+esc(l)+'</option>'; }).join('')+'</select>'
+    +'<select id="arEco" onchange="aidRecordsApply()"><option value="">全部经济关注</option><option value="红">经济·红</option><option value="橙">经济·橙</option><option value="黄">经济·黄</option></select>'
+    +'</div>';
+  html+='<div class="card aid-pool"><div class="m-sub" style="margin-bottom:8px"><b>批量添加申报</b>：勾选下列尚未在本项目申报的学生，点击「添加申报」（默认申请日期为今天，可在申报列表中修改）。</div>'
+    +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
+    +'<label style="font-size:13px"><input type="checkbox" id="arAll" onchange="aidPoolAll()"> 全选当前 '+(pool.length)+' 人</label>'
+    +'<button class="btn btn-p btn-xs" onclick="aidAddSelected()">添加申报</button></div>';
+  if(pool.length){
+    html+='<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border-s);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">';
+    pool.forEach(function(s){
+      var eco=ecoLevelOf(s.id), hd=hardshipOf(s.id);
+      html+='<label style="font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" class="arChk" value="'+s.id+'"> <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.name)+' '+esc(s.xh||'')+'</span>'
+        +(hd?'<span class="tag '+(hd.level==='特别困难'?'tag-红':(hd.level==='困难'?'tag-橙':'tag-黄'))+'" style="margin:0">'+esc(hd.level)+'</span>':'')
+        +(eco?'<span class="tag tag-其他" style="margin:0">经'+eco+'</span>':'')
+        +'</label>';
+    });
+    html+='</div>';
+  } else html+='<div style="font-size:13px;color:var(--muted)">当前筛选下没有可添加的学生（都已申报或不在筛选中）。</div>';
+  html+='</div>';
+  html+='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:10%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:9%"><col style="width:14%"><col style="width:16%"></colgroup>'
+    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>申请日期</th><th>材料说明</th><th>评审</th><th>金额</th><th>发放状态</th><th>操作</th></tr></thead><tbody>';
+  if(!selList.length) html+='<tr><td colspan="9">'+emptyBox('该项目暂无申报记录。请在上方筛选学生后勾选添加。')+'</td></tr>';
+  selList.forEach(function(r){
+    var s=getStudent(r.sid)||{};
+    html+='<tr><td style="font-weight:600">'+esc(s.name||'—')+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+ymd(r.applyDate)+'</td>'
+      +'<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.material||'—')+'</td>'
+      +'<td><span class="badge '+(r.review==='通过'?'badge-g':(r.review==='未通过'?'badge-r':'badge-gray'))+'">'+esc(r.review||'待评审')+'</span></td>'
+      +'<td>'+esc(r.amount||'—')+'</td>'
+      +'<td><span class="badge '+(r.status==='已发放'?'badge-g':(r.status==='未通过'?'badge-r':'badge-a'))+'">'+esc(r.status||'—')+'</span></td>'
+      +'<td><div class="ops"><button onclick="openAidRecordForm(\''+r.id+'\')">编辑</button><button onclick="openAidUpload(\''+r.sid+'\',\''+r.pid+'\')">上传材料</button><button onclick="delAidRecord(\''+r.id+'\')">删除</button></div></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+selList.length+' 条申报记录（该项目共 '+records.length+' 条）。上传的奖助材料自动存入项目内「奖助文件」文件夹并按 YYYYMMDD-姓名-文件类型 命名。</div>';
+  document.getElementById('aidBox').innerHTML=html;
+  document.getElementById('arPid').value=pid;
+  document.getElementById('arQ').value=F.aid.rQ;
+  document.getElementById('arCls').value=F.aid.rCls;
+  document.getElementById('arLevel').value=F.aid.rLevel;
+  document.getElementById('arEco').value=F.aid.rEco;
+}
+function aidPoolAll(){
+  var all=document.getElementById('arAll');
+  var chks=document.querySelectorAll('.arChk');
+  for(var i=0;i<chks.length;i++) chks[i].checked=all.checked;
+}
+
 /* ---------- 谈心谈话 ---------- */
 RENDERERS.talks = function(){
-  var acts='<button class="btn btn-p" onclick="openTalkForm()">新增谈话记录</button><button class="btn btn-g" onclick="exportTalks()">导出统计 CSV</button>';
+  var acts='<button class="btn btn-p" onclick="openTalkForm()">新增谈话记录</button><button class="btn btn-g" onclick="openTalkImport()">批量导入</button><button class="btn btn-g" onclick="openExportDlg(\'talks\')">导出</button>';
   document.getElementById('viewActions').innerHTML=acts;
   var months={}; Model.talks().forEach(function(t){ if(t.time) months[t.time.slice(0,7)]=1; });
   var monthHtml=Object.keys(months).sort().reverse().map(function(m){ return '<option value="'+m+'">'+m+'</option>'; }).join('');
@@ -617,10 +831,10 @@ function renderPortrait(sid){
     +pItem('备注',s.note)
     +'</div>'
     +'<div style="margin-top:14px">'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:6px">父亲信息</div>'
-    +'<div class="p-basic">'+pItem('姓名',s.fName)+pItem('联系方式',s.fPhone)+pItem('工作单位',s.fWork)+pItem('职务',s.fPost)+pItem('政治面貌',s.fZzmm)+'</div>'
-    +'<div style="font-size:13px;color:var(--muted);margin:12px 0 6px">母亲信息</div>'
-    +'<div class="p-basic">'+pItem('姓名',s.mName)+pItem('联系方式',s.mPhone)+pItem('工作单位',s.mWork)+pItem('职务',s.mPost)+pItem('政治面貌',s.mZzmm)+'</div>'
+    +'<details class="fam"><summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>父亲信息</summary>'
+    +'<div class="p-basic fam-body">'+pItem('姓名',s.fName)+pItem('联系方式',s.fPhone)+pItem('工作单位',s.fWork)+pItem('职务',s.fPost)+pItem('政治面貌',s.fZzmm)+'</div></details>'
+    +'<details class="fam"><summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>母亲信息</summary>'
+    +'<div class="p-basic fam-body">'+pItem('姓名',s.mName)+pItem('联系方式',s.mPhone)+pItem('工作单位',s.mWork)+pItem('职务',s.mPost)+pItem('政治面貌',s.mZzmm)+'</div></details>'
     +'</div>'
     +'<div style="margin-top:12px"><span style="font-size:13px;color:var(--muted);margin-right:6px">重点关注</span>'
     +((s.concerns||[]).length?(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join(''):'<span style="color:var(--muted);font-size:13px">未标记</span>')
@@ -642,9 +856,16 @@ function renderPortrait(sid){
   var events=[];
   talks.forEach(function(t){ events.push({d:t.time, k:'talk', t:t}); });
   focusF.concat(legacy).forEach(function(f){ events.push({d:f.date, k:'file', f:f}); });
+  hardshipRecords().forEach(function(h){ if(h.sid===sid) events.push({d:(h.year||'')+'-00-00', k:'hardship', h:h}); });
+  aidRecords().forEach(function(r){
+    if(r.sid===sid){
+      var p=aidProject(r.pid);
+      events.push({d:r.applyDate||'', k:'aid', r:r, p:p});
+    }
+  });
   events.sort(function(a,b){ return (b.d||'')<(a.d||'')?-1:1; });
 
-  html+='<div class="section-title">成长时间轴（谈话与重点关注材料，按日期倒序）</div><div class="card">';
+  html+='<div class="section-title">成长时间轴（谈话、奖助与重点关注材料，按日期倒序）</div><div class="card">';
   if(events.length){
     html+='<div class="tl">';
     events.forEach(function(ev){
@@ -656,16 +877,28 @@ function renderPortrait(sid){
           +(t.content?'<div class="t-content">'+esc(t.content)+'</div>':'')
           +(t.followDate?'<div style="font-size:12.5px;color:var(--muted);margin-top:6px">跟进：'+esc(t.followUp||'回访')+'（'+ymd(t.followDate)+'）'+(t.done?' · 已完成':'')+'</div>':'')
           +'</div>';
+      } else if(ev.k==='hardship'){
+        var h=ev.h;
+        html+='<div class="tl-date">'+esc(h.year||'—')+'</div><div class="tl-axis"><span class="dot dot-gold"></span></div>'
+          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a37f1f" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>困难认定 · '+esc(h.level||'')+' <span class="badge '+(h.status==='已认定'?'badge-b':(h.status==='已归档'?'badge-gray':'badge-a'))+'">'+esc(h.status||'')+'</span></div>'
+          +'<div class="t-meta">'+(h.review?'评议：'+esc(h.review)+' · ':'')+esc(h.year||'')+'学年家庭经济困难认定</div>'
+          +'</div>';
+      } else if(ev.k==='aid'){
+        var r=ev.r, p=ev.p;
+        html+='<div class="tl-date">'+ymd(r.applyDate)+'</div><div class="tl-axis"><span class="dot dot-gold"></span></div>'
+          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a37f1f" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'+esc(p?p.name:'奖助申报')+' <span class="badge '+(r.review==='通过'?'badge-g':(r.review==='未通过'?'badge-r':'badge-gray'))+'">'+esc(r.review||'待评审')+'</span> <span class="badge '+(r.status==='已发放'?'badge-g':(r.status==='未通过'?'badge-r':'badge-a'))+'">'+esc(r.status||'')+'</span></div>'
+          +'<div class="t-meta">奖助申报'+(r.amount?' · 金额 '+esc(r.amount):'')+(r.material?' · '+esc(r.material):'')+'</div>'
+          +'</div>';
       } else {
         var f=ev.f;
         html+='<div class="tl-date">'+ymd(f.date)+'</div><div class="tl-axis"><span class="dot dot-b"></span></div>'
-          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'+esc(f.name)+' <span class="badge badge-gray">'+(f.tags&&f.tags[0]?esc(f.tags[0]):'重点关注')+'</span></div>'
-          +'<div class="t-meta">重点关注材料'+(f.size?' · '+esc(f.size):'')+(f.note?' · '+esc(f.note):'')+'</div>'
+          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'+esc(f.name)+' <span class="badge badge-gray">'+(f.tags&&f.tags[0]?esc(f.tags[0]):(f.category||'材料'))+'</span></div>'
+          +'<div class="t-meta">'+(f.category||'材料')+(f.size?' · '+esc(f.size):'')+(f.note?' · '+esc(f.note):'')+'</div>'
           +'</div>';
       }
     });
     html+='</div>';
-  } else html+=emptyBox('暂无谈话与重点关注材料。可在谈心谈话中新增记录，或在「重点关注」板块上传材料。');
+  } else html+=emptyBox('暂无谈话、奖助记录与重点关注材料。可在谈心谈话中新增记录，或在「奖助管理」「重点关注」板块登记。');
   html+='</div>';
 
   html+='<div class="section-title">关联材料（文件索引）</div><div class="card">';

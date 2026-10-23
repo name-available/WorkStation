@@ -19,6 +19,10 @@ DB_PATH = os.path.join(DB_DIR, 'workstation.db')
 FOCUS_DIR = os.path.join(BASE_DIR, '重点关注文件')
 # 重点关注文件的类型（用于上传时的选择与自动命名）
 FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '其他']
+# 奖助材料存储目录（奖助模块上传的材料，自动改名落盘）
+AID_DIR = os.path.join(BASE_DIR, '奖助文件')
+# 奖助文件类型（用于上传时的选择与自动命名）
+AID_FILE_TYPES = ['认定表', '佐证材料', '申请表', '证明材料', '其他']
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -62,6 +66,31 @@ CREATE TABLE IF NOT EXISTS portraits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sid TEXT UNIQUE, tags TEXT NOT NULL DEFAULT '[]', updated_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS aid_projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '', type TEXT DEFAULT '',
+  term TEXT DEFAULT '', amount TEXT DEFAULT '', quota INTEGER DEFAULT 0,
+  deadline TEXT DEFAULT '', status TEXT DEFAULT '进行中', note TEXT DEFAULT '',
+  created_at INTEGER, updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS hardship_records (
+  id TEXT PRIMARY KEY,
+  sid TEXT NOT NULL DEFAULT '', year TEXT DEFAULT '',
+  level TEXT DEFAULT '', review TEXT DEFAULT '',
+  status TEXT DEFAULT '认定中', note TEXT DEFAULT '', updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS aid_records (
+  id TEXT PRIMARY KEY,
+  pid TEXT DEFAULT '', sid TEXT DEFAULT '',
+  apply_date TEXT DEFAULT '', material TEXT DEFAULT '',
+  review TEXT DEFAULT '待评审', amount TEXT DEFAULT '',
+  status TEXT DEFAULT '待发放', note TEXT DEFAULT '',
+  created_at INTEGER, updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_aid_records_pid_sid ON aid_records(pid, sid) WHERE pid != '' AND sid != '';
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT
@@ -128,10 +157,12 @@ class Database:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
-        # 兼容旧版数据库：files 表补充 sid 列（重点关注文件关联学生）
-        cols = {r['name'] for r in self.conn.execute('PRAGMA table_info(files)')}
-        if 'sid' not in cols:
+        # 兼容旧版数据库：files 表补充 sid / pid 列（重点关注与奖助材料关联学生与项目）
+        fcols = {r['name'] for r in self.conn.execute('PRAGMA table_info(files)')}
+        if 'sid' not in fcols:
             self.conn.execute('ALTER TABLE files ADD COLUMN sid TEXT DEFAULT \'\'')
+        if 'pid' not in fcols:
+            self.conn.execute('ALTER TABLE files ADD COLUMN pid TEXT DEFAULT \'\'')
         self.conn.commit()
 
     # ---------- 内部工具 ----------
@@ -202,7 +233,8 @@ class Database:
             'tags': tags, 'date': row.get('date') or '', 'size': row.get('size') or '',
             'note': row.get('note') or '', 'source': row.get('source') or '注册',
             'relPath': row.get('rel_path') or '', 'sid': row.get('sid') or '',
-            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
+            'pid': row.get('pid') or '', 'createdAt': row.get('created_at'),
+            'updatedAt': row.get('updated_at'),
         }
 
     def _file_to_db(self, f):
@@ -211,7 +243,61 @@ class Database:
             'tags': json.dumps(f.get('tags') or [], ensure_ascii=False), 'date': f.get('date') or '',
             'size': f.get('size') or '', 'note': f.get('note') or '',
             'source': f.get('source') or '注册', 'rel_path': f.get('relPath') or '',
-            'sid': f.get('sid') or '', 'created_at': f.get('createdAt'), 'updated_at': f.get('updatedAt'),
+            'sid': f.get('sid') or '', 'pid': f.get('pid') or '',
+            'created_at': f.get('createdAt'), 'updated_at': f.get('updatedAt'),
+        }
+
+    # ---------- 奖助：序列化 ----------
+    def _aid_project_from_db(self, row):
+        return {
+            'id': row.get('id'), 'name': row.get('name') or '', 'type': row.get('type') or '',
+            'term': row.get('term') or '', 'amount': row.get('amount') or '',
+            'quota': row.get('quota') or 0, 'deadline': row.get('deadline') or '',
+            'status': row.get('status') or '进行中', 'note': row.get('note') or '',
+            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
+        }
+
+    def _aid_project_to_db(self, p):
+        return {
+            'id': p.get('id'), 'name': p.get('name') or '', 'type': p.get('type') or '',
+            'term': p.get('term') or '', 'amount': p.get('amount') or '',
+            'quota': p.get('quota') or 0, 'deadline': p.get('deadline') or '',
+            'status': p.get('status') or '进行中', 'note': p.get('note') or '',
+            'created_at': p.get('createdAt'), 'updated_at': p.get('updatedAt'),
+        }
+
+    def _hardship_from_db(self, row):
+        return {
+            'id': row.get('id'), 'sid': row.get('sid') or '', 'year': row.get('year') or '',
+            'level': row.get('level') or '', 'review': row.get('review') or '',
+            'status': row.get('status') or '认定中', 'note': row.get('note') or '',
+            'updatedAt': row.get('updated_at'),
+        }
+
+    def _hardship_to_db(self, h):
+        return {
+            'id': h.get('id'), 'sid': h.get('sid') or '', 'year': h.get('year') or '',
+            'level': h.get('level') or '', 'review': h.get('review') or '',
+            'status': h.get('status') or '认定中', 'note': h.get('note') or '',
+            'updated_at': h.get('updatedAt'),
+        }
+
+    def _aid_record_from_db(self, row):
+        return {
+            'id': row.get('id'), 'pid': row.get('pid') or '', 'sid': row.get('sid') or '',
+            'applyDate': row.get('apply_date') or '', 'material': row.get('material') or '',
+            'review': row.get('review') or '待评审', 'amount': row.get('amount') or '',
+            'status': row.get('status') or '待发放', 'note': row.get('note') or '',
+            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
+        }
+
+    def _aid_record_to_db(self, r):
+        return {
+            'id': r.get('id'), 'pid': r.get('pid') or '', 'sid': r.get('sid') or '',
+            'apply_date': r.get('applyDate') or '', 'material': r.get('material') or '',
+            'review': r.get('review') or '待评审', 'amount': r.get('amount') or '',
+            'status': r.get('status') or '待发放', 'note': r.get('note') or '',
+            'created_at': r.get('createdAt'), 'updated_at': r.get('updatedAt'),
         }
 
     # ---------- 读取 ----------
@@ -241,6 +327,9 @@ class Database:
         return {
             'students': students, 'talks': talks, 'files': files,
             'portraits': portraits, 'settings': settings, 'meta': meta,
+            'aidProjects': [self._aid_project_from_db(r) for r in self._q('aid_projects')],
+            'hardshipRecords': [self._hardship_from_db(r) for r in self._q('hardship_records')],
+            'aidRecords': [self._aid_record_from_db(r) for r in self._q('aid_records')],
         }
 
     # ---------- 学生 ----------
@@ -417,6 +506,204 @@ class Database:
         except Exception:
             pass
 
+    # ---------- 奖助管理 ----------
+    def add_aid_project(self, p):
+        p = dict(p)
+        p.setdefault('id', _uid())
+        p.setdefault('createdAt', _now())
+        p.setdefault('updatedAt', _now())
+        vals = self._aid_project_to_db(p)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO aid_projects (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._aid_project_from_db(self._q('aid_projects', 'WHERE id=?', (p['id'],))[0])
+
+    def update_aid_project(self, p):
+        p = dict(p)
+        p['updatedAt'] = _now()
+        vals = self._aid_project_to_db(p)
+        vals.pop('id', None); vals.pop('created_at', None)
+        sets = ', '.join('%s=?' % k for k in vals)
+        self._exec('UPDATE aid_projects SET %s WHERE id=?' % sets, list(vals.values()) + [p['id']])
+        return self._aid_project_from_db(self._q('aid_projects', 'WHERE id=?', (p['id'],))[0])
+
+    def delete_aid_project(self, pid):
+        self._exec('DELETE FROM aid_records WHERE pid=?', (pid,))
+        self._exec('DELETE FROM files WHERE pid=?', (pid,))
+        self._exec('DELETE FROM aid_projects WHERE id=?', (pid,))
+
+    def add_hardship(self, h):
+        """困难认定档案：每生每学年一条，已存在则更新。"""
+        h = dict(h)
+        h.setdefault('id', _uid())
+        h['updatedAt'] = _now()
+        ex = self._q('hardship_records', 'WHERE sid=? AND year=?', (h.get('sid'), h.get('year')))
+        if ex:
+            h['id'] = ex[0]['id']
+            return self.update_hardship(h)
+        vals = self._hardship_to_db(h)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO hardship_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._hardship_from_db(self._q('hardship_records', 'WHERE id=?', (h['id'],))[0])
+
+    def update_hardship(self, h):
+        h = dict(h)
+        h['updatedAt'] = _now()
+        vals = self._hardship_to_db(h)
+        vals.pop('id', None)
+        sets = ', '.join('%s=?' % k for k in vals)
+        self._exec('UPDATE hardship_records SET %s WHERE id=?' % sets, list(vals.values()) + [h['id']])
+        return self._hardship_from_db(self._q('hardship_records', 'WHERE id=?', (h['id'],))[0])
+
+    def delete_hardship(self, hid):
+        self._exec('DELETE FROM hardship_records WHERE id=?', (hid,))
+
+    def add_aid_record(self, r):
+        r = dict(r)
+        r.setdefault('id', _uid())
+        r.setdefault('createdAt', _now())
+        r.setdefault('updatedAt', _now())
+        vals = self._aid_record_to_db(r)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO aid_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._aid_record_from_db(self._q('aid_records', 'WHERE id=?', (r['id'],))[0])
+
+    def update_aid_record(self, r):
+        r = dict(r)
+        r['updatedAt'] = _now()
+        vals = self._aid_record_to_db(r)
+        vals.pop('id', None); vals.pop('created_at', None)
+        sets = ', '.join('%s=?' % k for k in vals)
+        self._exec('UPDATE aid_records SET %s WHERE id=?' % sets, list(vals.values()) + [r['id']])
+        return self._aid_record_from_db(self._q('aid_records', 'WHERE id=?', (r['id'],))[0])
+
+    def delete_aid_record(self, rid):
+        self._exec('DELETE FROM aid_records WHERE id=?', (rid,))
+
+    def import_hardship(self, records):
+        """批量导入困难认定名单。records: [{xh, level, review, year}] → {imported, skips}。"""
+        imported = []
+        skips = []
+        st = self.state()['students']
+        by_xh = {}
+        for s in st:
+            if s.get('xh'):
+                by_xh.setdefault(str(s['xh']).strip(), s)
+        seen = set()
+        for idx, rec in enumerate(records, start=2):
+            xh = str(rec.get('xh') or '').strip()
+            level = str(rec.get('level') or '').strip()
+            review = str(rec.get('review') or '').strip()
+            year = str(rec.get('year') or '').strip()
+            if not xh and not level and not review:
+                continue
+            if not xh:
+                skips.append({'row': idx, 'reason': '学号为空'})
+                continue
+            stu = by_xh.get(xh)
+            if not stu:
+                skips.append({'row': idx, 'reason': '学号未匹配到台账学生（' + xh + '）'})
+                continue
+            if level not in ('特别困难', '困难', '一般困难'):
+                skips.append({'row': idx, 'reason': '等级无效（' + (level or '空') + '），应为 特别困难/困难/一般困难'})
+                continue
+            if not year:
+                skips.append({'row': idx, 'reason': '学年为空'})
+                continue
+            key = (stu['id'], year)
+            if key in seen:
+                skips.append({'row': idx, 'reason': '文件内同一学生同一学年重复'})
+                continue
+            seen.add(key)
+            self.add_hardship({'sid': stu['id'], 'year': year, 'level': level,
+                               'review': review, 'status': '已认定', 'note': ''})
+            imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh})
+        return {'imported': len(imported), 'skips': skips, 'names': imported}
+
+    def import_talks(self, records):
+        """批量导入谈话。records: [{time, place, xh, name, topic, traits, content, note, talker}] → {imported, skips}。"""
+        imported = []
+        skips = []
+        st = self.state()['students']
+        by_xh = {}
+        for s in st:
+            if s.get('xh'):
+                by_xh.setdefault(str(s['xh']).strip(), s)
+        for idx, rec in enumerate(records, start=2):
+            xh = str(rec.get('xh') or '').strip()
+            time_ = str(rec.get('time') or '').strip()
+            content = str(rec.get('content') or '').strip()
+            if not xh and not time_ and not content:
+                continue
+            if not time_:
+                skips.append({'row': idx, 'reason': '谈话日期为空'})
+                continue
+            if not xh:
+                skips.append({'row': idx, 'reason': '学号为空'})
+                continue
+            stu = by_xh.get(xh)
+            if not stu:
+                skips.append({'row': idx, 'reason': '学号未匹配到台账学生（' + xh + '）'})
+                continue
+            if not content:
+                skips.append({'row': idx, 'reason': '谈话要点记录为空'})
+                continue
+            t = {
+                'sid': stu['id'], 'sname': stu['name'],
+                'time': time_[:10], 'topic': str(rec.get('topic') or '').strip() or '未分类',
+                'level': 'g', 'place': str(rec.get('place') or '').strip(),
+                'talker': str(rec.get('talker') or '').strip(),
+                'traits': str(rec.get('traits') or '').strip(),
+                'content': content,
+                'followUp': '', 'followDate': '', 'done': False,
+                'createdAt': _now(), 'updatedAt': _now(),
+            }
+            self.add_talk(t)
+            imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh, 'time': t['time']})
+        return {'imported': len(imported), 'skips': skips, 'names': imported}
+
+    def open_aid_dir(self):
+        """在访达中打开奖助文件文件夹（仅本机）。"""
+        os.makedirs(AID_DIR, exist_ok=True)
+        try:
+            import subprocess
+            subprocess.Popen(['open', AID_DIR])
+        except Exception:
+            pass
+
+    def save_aid_upload(self, sid, pid, sname, ftype, content, orig_name, size_str, date=None):
+        """保存奖助上传文件：写入 AID_DIR，自动改名为 YYYYMMDD-姓名-文件类型.ext，并登记文件索引。
+
+        返回 (file, None) 或 (None, 错误信息)。
+        """
+        os.makedirs(AID_DIR, exist_ok=True)
+        date = date or _today()
+        ymd = date.replace('-', '')
+        ext = os.path.splitext(orig_name or '')[-1]
+        if not re.match(r'^[.][A-Za-z0-9]{1,10}$', ext):
+            ext = ''
+        base = '%s-%s-%s' % (self._safe_seg(ymd), self._safe_seg(sname), self._safe_seg(ftype or '其他'))
+        fname = base + ext
+        n = 2
+        while os.path.exists(os.path.join(AID_DIR, fname)):
+            fname = '%s-%d%s' % (base, n, ext)
+            n += 1
+        with open(os.path.join(AID_DIR, fname), 'wb') as fh:
+            fh.write(content)
+        f = {
+            'id': _uid(), 'name': fname, 'category': '奖助材料',
+            'tags': [ftype or '其他'], 'date': date, 'size': size_str or '',
+            'note': '', 'source': '奖助上传', 'relPath': fname,
+            'sid': sid, 'pid': pid or '', 'createdAt': _now(), 'updatedAt': _now(),
+        }
+        vals = self._file_to_db(f)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0]), None
+
     def update_file(self, fid, f):
         vals = self._file_to_db(f)
         vals.pop('id', None)
@@ -581,5 +868,6 @@ class Database:
         self.set_meta('seedAt', now)
 
     def reset(self):
-        for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta'):
+        for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta',
+                      'aid_projects', 'hardship_records', 'aid_records'):
             self._exec('DELETE FROM %s' % table)
