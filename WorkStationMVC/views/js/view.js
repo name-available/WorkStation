@@ -119,12 +119,12 @@ var VIEWS = {
 };
 var VIEW_SUBS = {
   home:'今日概览与待办', students:'学生信息导入与管理', focus:'关注调整与材料归档',
-  aid:'奖助项目 · 困难认定 · 申报发放',
+  aid:'困难认定 · 奖学金 · 助学金',
   talks:'谈话记录、计划与跟进', portrait:'一人一档全景视图', files:'本地文件索引（仅文件名检索）', settings:'密码、字典、备份与数据'
 };
 var curView='home';
 var F = { students:{q:'',cls:'',gender:'',zzmm:'',concern:''}, focus:{q:'',type:'',level:'',cls:''},
-  aid:{tab:'projects', pQ:'',pType:'',pTerm:'', hYear:'',hLevel:'',hQ:'', rPid:'',rCls:'',rLevel:'',rEco:'',rQ:''},
+  aid:{tab:'hardship', pQ:'',pType:'',pTerm:'', hYear:'',hLevel:'',hQ:'', rPid:'',rCls:'',rLevel:'',rEco:'',rQ:'', sQ:'',sLevel:'',sYear:'', gQ:'',gLevel:'',gYear:''},
   talks:{q:'',topic:'',level:'',month:''}, files:{q:'',cat:'',tag:''}, portrait:{sid:''} };
 var NAV_ICONS = {
   home:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.5"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.5"/><rect x="3" y="15" width="7.5" height="6" rx="1.5"/></svg>',
@@ -506,15 +506,13 @@ function renderFocusDetail(s){
 }
 
 /* ---------- 奖助管理 ---------- */
-var AID_TYPES = ['困难认定', '助学金', '奖学金', '勤工助学', '其他'];
 var HARD_LEVELS = ['特别困难', '困难', '一般困难'];
+var AID_LEVELS = ['一等', '二等', '三等', '不记等次'];
 var AID_FILE_TYPES = ['认定表', '佐证材料', '申请表', '证明材料', '其他'];
-var AID_REVIEWS = ['待评审', '通过', '未通过'];
-var AID_PAY = ['待发放', '已发放', '未通过'];
-function aidProjects(){ return (Model.data.aidProjects)||[]; }
 function hardshipRecords(){ return (Model.data.hardshipRecords)||[]; }
-function aidRecords(){ return (Model.data.aidRecords)||[]; }
-function aidProject(id){ return aidProjects().filter(function(p){ return p.id===id; })[0]||null; }
+function scholarships(){ return (Model.data.scholarships)||[]; }
+function grants(){ return (Model.data.grants)||[]; }
+function aidList(kind){ return kind==='grant' ? grants() : scholarships(); }
 function hardshipOf(sid, year){ return hardshipRecords().filter(function(h){ return h.sid===sid && h.year===(year||h.year); })[0]||null; }
 function aidFilesOf(sid, pid){ return Model.files().filter(function(f){ return f.category==='奖助材料' && f.sid===sid && (!pid || f.pid===pid); }); }
 function ecoLevelOf(sid){ var s=getStudent(sid); if(!s) return ''; var c=(s.concerns||[]).filter(function(x){ return x.t==='经济'; })[0]; return c?c.l:''; }
@@ -525,56 +523,75 @@ function hardshipSuggest(h){
   return { want:want, cur:cur, need: !!want && rank[cur] > rank[want] };
 }
 RENDERERS.aid = function(){
-  var tabs=[['projects','奖助项目'],['hardship','困难认定'],['records','申报记录']];
+  var tabs=[['hardship','困难认定'],['scholarship','奖学金'],['grant','助学金']];
   var html='<div class="tabbar">'+tabs.map(function(t){ return '<button class="tab'+(F.aid.tab===t[0]?' on':'')+'" data-tab="'+t[0]+'" onclick="aidTab(\''+t[0]+'\')">'+t[1]+'</button>'; }).join('')+'</div><div id="aidBox"></div>';
   document.getElementById('view-aid').innerHTML=html;
   aidRenderTab();
 };
 function aidTab(t){ F.aid.tab=t; aidRenderTab(); }
 function aidRenderTab(){
-  if(F.aid.tab==='projects') aidRenderProjects();
-  else if(F.aid.tab==='hardship') aidRenderHardship();
-  else aidRenderRecords();
+  if(F.aid.tab==='hardship') aidRenderHardship();
+  else aidRenderAidList(F.aid.tab);
   var btns=document.querySelectorAll('.tabbar .tab');
   for(var i=0;i<btns.length;i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-tab')===F.aid.tab);
 }
-/* ---- 页签 A：奖助项目 ---- */
-function aidProjectsApply(){
-  F.aid.pQ=(document.getElementById('apQ').value||'').trim();
-  F.aid.pType=document.getElementById('apType').value;
-  F.aid.pTerm=document.getElementById('apTerm').value;
-  aidRenderProjects();
+/* ---- 奖学金 / 助学金（汇总展示，不审批） ---- */
+function aidAidApply(kind){
+  var pf=kind==='grant'?'g':'s';
+  F.aid[pf+'Q']=(document.getElementById(pf+'Q').value||'').trim();
+  F.aid[pf+'Level']=document.getElementById(pf+'Level').value;
+  F.aid[pf+'Year']=document.getElementById(pf+'Year').value;
+  aidRenderAidList(kind);
 }
-function aidRenderProjects(){
-  var acts='<button class="btn btn-p" onclick="openAidProjectForm()">新增项目</button>';
+function aidRenderAidList(kind){
+  var title=kind==='grant'?'助学金':'奖学金';
+  var pf=kind==='grant'?'g':'s';
+  var acts='<button class="btn btn-p" onclick="importAidModal(\''+kind+'\')">批量导入'+title+'</button>'
+    +'<button class="btn btn-g" onclick="downloadAidTemplate(\''+kind+'\')">下载导入模板</button>'
+    +'<button class="btn btn-g" onclick="exportAidDlg(\''+kind+'\')">批量导出</button>';
   document.getElementById('viewActions').innerHTML=acts;
-  var list=aidProjects().slice(), q=F.aid.pQ.toLowerCase();
-  if(q) list=list.filter(function(p){ return (p.name||'').toLowerCase().indexOf(q)>-1; });
-  if(F.aid.pType) list=list.filter(function(p){ return p.type===F.aid.pType; });
-  if(F.aid.pTerm) list=list.filter(function(p){ return (p.term||'').indexOf(F.aid.pTerm)>-1; });
-  list.sort(function(a,b){ return (b.updatedAt||0)-(a.updatedAt||0); });
-  var terms={}; aidProjects().forEach(function(p){ if(p.term) terms[p.term]=1; });
-  var termOpts=Object.keys(terms).sort().reverse().map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('');
-  var counts={}; aidRecords().forEach(function(r){ counts[r.pid]=(counts[r.pid]||0)+1; });
-  var html='<div class="toolbar">'
-    +'<input type="search" placeholder="按项目名称查询" value="'+esc(F.aid.pQ)+'" oninput="aidProjectsApply()" id="apQ">'
-    +'<select id="apType" onchange="aidProjectsApply()"><option value="">全部类型</option>'+AID_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select>'
-    +'<select id="apTerm" onchange="aidProjectsApply()"><option value="">全部学年学期</option>'+termOpts+'</select>'
-    +'</div><div class="table-wrap"><table><colgroup><col style="width:18%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:8%"><col style="width:12%"></colgroup>'
-    +'<thead><tr><th>项目名称</th><th>类型</th><th>学年学期</th><th>金额</th><th>名额</th><th>截止日期</th><th>状态</th><th>申报人数</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length) html+='<tr><td colspan="9">'+emptyBox('暂无奖助项目。点击右上角“新增项目”建立本学年奖助项目（助学金、奖学金、困难认定等）。')+'</td></tr>';
-  list.forEach(function(p){
-    html+='<tr><td style="font-weight:600">'+esc(p.name)+'</td><td><span class="badge badge-gray">'+esc(p.type||'—')+'</span></td><td>'+esc(p.term||'—')+'</td><td>'+esc(p.amount||'—')+'</td><td>'+(p.quota?p.quota:'—')+'</td><td>'+ymd(p.deadline)+'</td>'
-      +'<td><span class="badge '+(p.status==='进行中'?'badge-b':(p.status==='已截止'?'badge-gray':'badge-g'))+'">'+esc(p.status||'—')+'</span></td><td style="font-weight:600">'+(counts[p.id]||0)+'</td>'
-      +'<td><div class="ops"><button onclick="openAidProjectForm(\''+p.id+'\')">编辑</button><button onclick="delAidProject(\''+p.id+'\')">删除</button></div></td></tr>';
+  var list=aidList(kind).slice(), q=F.aid[pf+'Q'].toLowerCase();
+  if(q) list=list.filter(function(r){ var s=getStudentByXh(r.xh); return s && ((s.name||'').toLowerCase().indexOf(q)>-1 || (r.xh||'').indexOf(q)>-1); });
+  if(F.aid[pf+'Level']) list=list.filter(function(r){ return r.level===F.aid[pf+'Level']; });
+  if(F.aid[pf+'Year']) list=list.filter(function(r){ return r.year===F.aid[pf+'Year']; });
+  list.sort(function(a,b){ return (b.year||'')<(a.year||'')?-1:1; });
+  // 统计卡
+  var years={}; var levels={'一等':0,'二等':0,'三等':0,'不记等次':0}; var stu={};
+  aidList(kind).forEach(function(r){
+    if(r.year) years[r.year]=1;
+    if(levels[r.level]!==undefined) levels[r.level]++;
+    if(r.xh) stu[r.xh]=1;
   });
-  html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 个奖助项目</div>';
+  var levelHtml=Object.keys(levels).map(function(l){ return '<span class="stat-chip"><b>'+l+'</b>'+levels[l]+'</span>'; }).join('');
+  var yearHtml=Object.keys(years).sort().reverse().map(function(y){ return '<span class="stat-chip"><b>'+y+'</b>'+y+'</span>'; }).join('');
+  var html='<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+    +'<span class="stat-chip" style="font-weight:700">共 '+aidList(kind).length+' 条</span>'
+    +'<span class="stat-chip"><b>覆盖学生</b>'+Object.keys(stu).length+' 人</span>'
+    +levelHtml+'</div></div>';
+  var qyear=Object.keys(years).sort().reverse();
+  var html2='<div class="toolbar">'
+    +'<input type="search" placeholder="按学生姓名 / 学号查询" value="'+esc(F.aid[pf+'Q'])+'" oninput="aidAidApply(\''+kind+'\')" id="'+pf+'Q">'
+    +'<select id="'+pf+'Level" onchange="aidAidApply(\''+kind+'\')"><option value="">全部等次</option>'+AID_LEVELS.map(function(l){ return '<option>'+esc(l)+'</option>'; }).join('')+'</select>'
+    +'<select id="'+pf+'Year" onchange="aidAidApply(\''+kind+'\')"><option value="">全部学年</option>'+qyear.map(function(y){ return '<option>'+esc(y)+'</option>'; }).join('')+'</select>'
+    +'</div><div class="table-wrap"><table><colgroup><col style="width:10%"><col style="width:12%"><col style="width:10%"><col style="width:22%"><col style="width:12%"><col style="width:14%"><col style="width:12%"><col style="width:8%"></colgroup>'
+    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>'+title+'名称</th><th>等次</th><th>获评学年</th><th>获评时间</th><th>操作</th></tr></thead><tbody>';
+  if(!list.length) html2+='<tr><td colspan="8">'+emptyBox('暂无'+title+'记录。点击右上角“批量导入'+title+'”按 学号 / 名称 / 等次 / 学年 / 获评时间 导入。')+'</td></tr>';
+  list.forEach(function(r){
+    var s=getStudentByXh(r.xh)||{};
+    html2+='<tr><td style="font-weight:600">'+esc(s.name||'—')+'</td><td>'+esc(r.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td>'
+      +'<td>'+esc(r.name||'—')+'</td><td><span class="badge badge-b">'+esc(r.level||'—')+'</span></td>'
+      +'<td>'+esc(r.year||'—')+'</td><td>'+ymd(r.time)+'</td>'
+      +'<td><div class="ops"><button onclick="delAid(\''+kind+'\',\''+r.id+'\')">删除</button></div></td></tr>';
+  });
+  html2+='</tbody></table></div>';
+  html2+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条记录。本模块仅做'+title+'获评情况的汇总与导出，不包含审批流程。</div>';
+  html+=html2;
   document.getElementById('aidBox').innerHTML=html;
-  document.getElementById('apQ').value=F.aid.pQ;
-  document.getElementById('apType').value=F.aid.pType;
-  document.getElementById('apTerm').value=F.aid.pTerm;
+  document.getElementById(pf+'Q').value=F.aid[pf+'Q'];
+  document.getElementById(pf+'Level').value=F.aid[pf+'Level'];
+  document.getElementById(pf+'Year').value=F.aid[pf+'Year'];
 }
+function getStudentByXh(xh){ return Model.students().filter(function(s){ return s.xh===xh; })[0]||null; }
 /* ---- 页签 B：困难认定 ---- */
 function aidHardshipApply(){
   F.aid.hYear=document.getElementById('ahYear').value;
@@ -614,92 +631,6 @@ function aidRenderHardship(){
   document.getElementById('ahYear').value=F.aid.hYear;
   document.getElementById('ahLevel').value=F.aid.hLevel;
 }
-/* ---- 页签 C：申报记录 ---- */
-function aidRecordsApply(){
-  F.aid.rPid=document.getElementById('arPid').value;
-  F.aid.rCls=document.getElementById('arCls').value;
-  F.aid.rLevel=document.getElementById('arLevel').value;
-  F.aid.rEco=document.getElementById('arEco').value;
-  F.aid.rQ=(document.getElementById('arQ').value||'').trim();
-  aidRenderRecords();
-}
-function aidRenderRecords(){
-  var acts='<button class="btn btn-p" onclick="exportAidRecords()">导出申报明细</button>';
-  document.getElementById('viewActions').innerHTML=acts;
-  var projects=aidProjects();
-  if(!projects.length){
-    document.getElementById('aidBox').innerHTML=emptyBox('还没有奖助项目。请先在「奖助项目」页签建立项目（如国家助学金、困难认定等），再登记申报记录。');
-    return;
-  }
-  if(!F.aid.rPid || !aidProject(F.aid.rPid)) F.aid.rPid=projects[0].id;
-  var pid=F.aid.rPid, p=aidProject(pid);
-  var records=aidRecords().filter(function(r){ return r.pid===pid; });
-  var bySid={}; records.forEach(function(r){ bySid[r.sid]=r; });
-  // 候选学生：未在该项目申报
-  var pool=Model.students().filter(function(s){ return !bySid[s.id]; });
-  var q=F.aid.rQ.toLowerCase();
-  if(q) pool=pool.filter(function(s){ return (s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1; });
-  if(F.aid.rCls) pool=pool.filter(function(s){ return s.cls===F.aid.rCls; });
-  if(F.aid.rLevel) pool=pool.filter(function(s){ return (hardshipOf(s.id)||{}).level===F.aid.rLevel; });
-  if(F.aid.rEco) pool=pool.filter(function(s){ return ecoLevelOf(s.id)===F.aid.rEco; });
-  pool.sort(function(a,b){ return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
-  var selList=records.slice();
-  if(F.aid.rCls) selList=selList.filter(function(r){ var s=getStudent(r.sid); return s && s.cls===F.aid.rCls; });
-  if(F.aid.rLevel) selList=selList.filter(function(r){ return (hardshipOf(r.sid)||{}).level===F.aid.rLevel; });
-  if(F.aid.rEco) selList=selList.filter(function(r){ return ecoLevelOf(r.sid)===F.aid.rEco; });
-  if(q) selList=selList.filter(function(r){ var s=getStudent(r.sid); return s && ((s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1); });
-  selList.sort(function(a,b){ var sa=getStudent(a.sid)||{}, sb=getStudent(b.sid)||{}; return (sa.cls||'').localeCompare(sb.cls||'') || (sa.xh||'').localeCompare(sb.xh||''); });
-  var html='<div class="aid-proj-head"><span style="font-weight:700">'+esc(p.name)+'</span> <span class="badge badge-b">'+esc(p.type||'')+'</span> <span style="color:var(--muted);font-size:13px">'+esc(p.term||'')+(p.amount?' · '+esc(p.amount):'')+' · 已申报 '+records.length+' 人</span></div>';
-  html+='<div class="toolbar">'
-    +'<select id="arPid" onchange="aidRecordsApply()">'+projects.map(function(x){ return '<option value="'+x.id+'">'+esc(x.name)+'</option>'; }).join('')+'</select>'
-    +'<input type="search" placeholder="按姓名 / 学号查询" value="'+esc(F.aid.rQ)+'" oninput="aidRecordsApply()" id="arQ">'
-    +'<select id="arCls" onchange="aidRecordsApply()"><option value="">全部班级</option>'+clsOptions()+'</select>'
-    +'<select id="arLevel" onchange="aidRecordsApply()"><option value="">全部困难等级</option>'+HARD_LEVELS.map(function(l){ return '<option>'+esc(l)+'</option>'; }).join('')+'</select>'
-    +'<select id="arEco" onchange="aidRecordsApply()"><option value="">全部经济关注</option><option value="红">经济·红</option><option value="橙">经济·橙</option><option value="黄">经济·黄</option></select>'
-    +'</div>';
-  html+='<div class="card aid-pool"><div class="m-sub" style="margin-bottom:8px"><b>批量添加申报</b>：勾选下列尚未在本项目申报的学生，点击「添加申报」（默认申请日期为今天，可在申报列表中修改）。</div>'
-    +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
-    +'<label style="font-size:13px"><input type="checkbox" id="arAll" onchange="aidPoolAll()"> 全选当前 '+(pool.length)+' 人</label>'
-    +'<button class="btn btn-p btn-xs" onclick="aidAddSelected()">添加申报</button></div>';
-  if(pool.length){
-    html+='<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border-s);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">';
-    pool.forEach(function(s){
-      var eco=ecoLevelOf(s.id), hd=hardshipOf(s.id);
-      html+='<label style="font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" class="arChk" value="'+s.id+'"> <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.name)+' '+esc(s.xh||'')+'</span>'
-        +(hd?'<span class="tag '+(hd.level==='特别困难'?'tag-红':(hd.level==='困难'?'tag-橙':'tag-黄'))+'" style="margin:0">'+esc(hd.level)+'</span>':'')
-        +(eco?'<span class="tag tag-其他" style="margin:0">经'+eco+'</span>':'')
-        +'</label>';
-    });
-    html+='</div>';
-  } else html+='<div style="font-size:13px;color:var(--muted)">当前筛选下没有可添加的学生（都已申报或不在筛选中）。</div>';
-  html+='</div>';
-  html+='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:10%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:9%"><col style="width:14%"><col style="width:16%"></colgroup>'
-    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>申请日期</th><th>材料说明</th><th>评审</th><th>金额</th><th>发放状态</th><th>操作</th></tr></thead><tbody>';
-  if(!selList.length) html+='<tr><td colspan="9">'+emptyBox('该项目暂无申报记录。请在上方筛选学生后勾选添加。')+'</td></tr>';
-  selList.forEach(function(r){
-    var s=getStudent(r.sid)||{};
-    html+='<tr><td style="font-weight:600">'+esc(s.name||'—')+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+ymd(r.applyDate)+'</td>'
-      +'<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.material||'—')+'</td>'
-      +'<td><span class="badge '+(r.review==='通过'?'badge-g':(r.review==='未通过'?'badge-r':'badge-gray'))+'">'+esc(r.review||'待评审')+'</span></td>'
-      +'<td>'+esc(r.amount||'—')+'</td>'
-      +'<td><span class="badge '+(r.status==='已发放'?'badge-g':(r.status==='未通过'?'badge-r':'badge-a'))+'">'+esc(r.status||'—')+'</span></td>'
-      +'<td><div class="ops"><button onclick="openAidRecordForm(\''+r.id+'\')">编辑</button><button onclick="openAidUpload(\''+r.sid+'\',\''+r.pid+'\')">上传材料</button><button onclick="delAidRecord(\''+r.id+'\')">删除</button></div></td></tr>';
-  });
-  html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+selList.length+' 条申报记录（该项目共 '+records.length+' 条）。上传的奖助材料自动存入项目内「奖助文件」文件夹并按 YYYYMMDD-姓名-文件类型 命名。</div>';
-  document.getElementById('aidBox').innerHTML=html;
-  document.getElementById('arPid').value=pid;
-  document.getElementById('arQ').value=F.aid.rQ;
-  document.getElementById('arCls').value=F.aid.rCls;
-  document.getElementById('arLevel').value=F.aid.rLevel;
-  document.getElementById('arEco').value=F.aid.rEco;
-}
-function aidPoolAll(){
-  var all=document.getElementById('arAll');
-  var chks=document.querySelectorAll('.arChk');
-  for(var i=0;i<chks.length;i++) chks[i].checked=all.checked;
-}
-
 /* ---------- 谈心谈话 ---------- */
 RENDERERS.talks = function(){
   var acts='<button class="btn btn-p" onclick="openTalkForm()">新增谈话记录</button><button class="btn btn-g" onclick="openTalkImport()">批量导入</button><button class="btn btn-g" onclick="openExportDlg(\'talks\')">导出</button>';
@@ -860,11 +791,9 @@ function renderPortrait(sid){
   talks.forEach(function(t){ events.push({d:t.time, k:'talk', t:t}); });
   focusF.concat(legacy).forEach(function(f){ events.push({d:f.date, k:'file', f:f}); });
   hardshipRecords().forEach(function(h){ if(h.sid===sid) events.push({d:(h.year||'')+'-00-00', k:'hardship', h:h}); });
-  aidRecords().forEach(function(r){
-    if(r.sid===sid){
-      var p=aidProject(r.pid);
-      events.push({d:r.applyDate||'', k:'aid', r:r, p:p});
-    }
+  scholarships().concat(grants()).forEach(function(r){
+    var s=getStudentByXh(r.xh);
+    if(s && s.id===sid) events.push({d:r.time||'', k:'aid', a:r});
   });
   events.sort(function(a,b){ return (b.d||'')<(a.d||'')?-1:1; });
 
@@ -887,10 +816,10 @@ function renderPortrait(sid){
           +'<div class="t-meta">'+(h.review?'评议：'+esc(h.review)+' · ':'')+esc(h.year||'')+'学年家庭经济困难认定</div>'
           +'</div>';
       } else if(ev.k==='aid'){
-        var r=ev.r, p=ev.p;
-        html+='<div class="tl-date">'+ymd(r.applyDate)+'</div><div class="tl-axis"><span class="dot dot-gold"></span></div>'
-          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a37f1f" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'+esc(p?p.name:'奖助申报')+' <span class="badge '+(r.review==='通过'?'badge-g':(r.review==='未通过'?'badge-r':'badge-gray'))+'">'+esc(r.review||'待评审')+'</span> <span class="badge '+(r.status==='已发放'?'badge-g':(r.status==='未通过'?'badge-r':'badge-a'))+'">'+esc(r.status||'')+'</span></div>'
-          +'<div class="t-meta">奖助申报'+(r.amount?' · 金额 '+esc(r.amount):'')+(r.material?' · '+esc(r.material):'')+'</div>'
+        var a=ev.a, isG=(a.name||'').indexOf('助学')>-1;
+        html+='<div class="tl-date">'+ymd(a.time)+'</div><div class="tl-axis"><span class="dot dot-gold"></span></div>'
+          +'<div class="tl-body"><div class="t-topic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a37f1f" stroke-width="1.8" style="vertical-align:-2px;margin-right:4px"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'+(isG?'助学金':'奖学金')+' · '+esc(a.name)+' <span class="badge badge-b">'+esc(a.level||'')+'</span></div>'
+          +'<div class="t-meta">'+esc(a.year||'')+'学年获评 · '+ymd(a.time)+'</div>'
           +'</div>';
       } else {
         var f=ev.f;

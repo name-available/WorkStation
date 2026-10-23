@@ -220,25 +220,6 @@ function doExport(kind){
   }
   closeModal();
 }
-function exportAidRecords(){
-  var pid=F.aid.rPid, p=aidProject(pid);
-  if(!p){ toast('请先选择奖助项目','err'); return; }
-  var records=aidRecords().filter(function(r){ return r.pid===pid; });
-  var q=F.aid.rQ.toLowerCase();
-  if(q) records=records.filter(function(r){ var s=getStudent(r.sid); return s && ((s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1); });
-  if(F.aid.rCls) records=records.filter(function(r){ var s=getStudent(r.sid); return s && s.cls===F.aid.rCls; });
-  if(F.aid.rLevel) records=records.filter(function(r){ return (hardshipOf(r.sid)||{}).level===F.aid.rLevel; });
-  if(F.aid.rEco) records=records.filter(function(r){ return ecoLevelOf(r.sid)===F.aid.rEco; });
-  function q(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }
-  var lines=[['姓名','学号','班级','项目','学年学期','困难等级','经济关注','申请日期','材料说明','评审结果','金额','发放状态'].map(q).join(',')];
-  records.forEach(function(r){
-    var s=getStudent(r.sid)||{}, hd=hardshipOf(r.sid), eco=ecoLevelOf(r.sid);
-    lines.push([q(s.name||''),q(s.xh||''),q(s.cls||''),q(p.name),q(p.term||''),q(hd?hd.level:''),q(eco?'经济·'+eco:''),q(r.applyDate),q(r.material),q(r.review),q(r.amount),q(r.status)].join(','));
-  });
-  download('奖助申报明细_'+todayISO()+'_{0}.csv'.replace('{0}',p.name.replace(/[\/\\:*?"<>|]/g,'_')),'\uFEFF'+lines.join('\n'),'text/csv;charset=utf-8');
-  toast('已导出奖助申报明细（'+records.length+' 条）');
-}
-
 /* ---------- 画像 ---------- */
 function savePortraitTag(sid){
   var v=document.getElementById('ptTag').value.trim(); if(!v){ toast('标签不能为空','err'); return; }
@@ -674,55 +655,6 @@ function downloadConcernsTemplate(){
   toast('模板已下载（含示例行，可删除）');
 }
 
-/* ---------- 奖助管理：项目 ---------- */
-function openAidProjectForm(id){
-  var p = id ? aidProject(id) : null;
-  var v = p || { name:'', type:'助学金', term:currentTerm(), amount:'', quota:'', deadline:'', status:'进行中', note:'' };
-  openModal('<h2>'+(id?'编辑奖助项目':'新增奖助项目')+'</h2><div class="m-sub">项目用于组织奖助申报与发放，如“国家助学金（2026-2027）”“困难认定”。删除项目会同步删除其申报记录与关联材料索引。</div>'
-    +'<div class="form-grid">'
-    +'<div class="form-item form-full"><label><span class="req">*</span>项目名称</label><input id="apName" value="'+esc(v.name)+'" placeholder="如 国家助学金（2026-2027学年）"></div>'
-    +'<div class="form-item"><label>类型</label><select id="apType">'+AID_TYPES.map(function(t){ return '<option'+(v.type===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item"><label>学年学期</label><input id="apTerm" value="'+esc(v.term||'')+'" placeholder="如 2026-2027"></div>'
-    +'<div class="form-item"><label>金额标准</label><input id="apAmount" value="'+esc(v.amount||'')+'" placeholder="如 每生每年 4000 元"></div>'
-    +'<div class="form-item"><label>名额</label><input id="apQuota" type="number" min="0" value="'+esc(v.quota||'')+'" placeholder="名额数量，可空"></div>'
-    +'<div class="form-item"><label>申报截止日期</label><input type="date" id="apDeadline" value="'+esc(v.deadline||'')+'"></div>'
-    +'<div class="form-item"><label>状态</label><select id="apStatus">'+['进行中','已截止','已完成'].map(function(s){ return '<option'+(v.status===s?' selected':'')+'>'+esc(s)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item form-full"><label>备注</label><input id="apNote" value="'+esc(v.note||'')+'" placeholder="如 评选条件、材料要求"></div>'
-    +'</div>'
-    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveAidProject(\''+(id||'')+'\')">保存</button></div>');
-}
-function saveAidProject(id){
-  var name=document.getElementById('apName').value.trim();
-  if(!name){ toast('请填写项目名称','err'); return; }
-  var obj = id ? aidProject(id) : { id:uid(), createdAt:Date.now(), updatedAt:Date.now() };
-  obj.name=name; obj.type=document.getElementById('apType').value;
-  obj.term=document.getElementById('apTerm').value.trim();
-  obj.amount=document.getElementById('apAmount').value.trim();
-  obj.quota=Number(document.getElementById('apQuota').value||0);
-  obj.deadline=document.getElementById('apDeadline').value;
-  obj.status=document.getElementById('apStatus').value;
-  obj.note=document.getElementById('apNote').value.trim();
-  obj.updatedAt=Date.now();
-  (async function(){
-    try{
-      if(id){ await Model.save('PUT','/api/aid/projects/'+id,{project:obj}); }
-      else { await Model.save('POST','/api/aid/projects',{project:obj}); }
-      closeModal(); aidRenderProjects(); toast(id?'已保存项目修改':'已新增奖助项目');
-    }catch(e){ toast(e.message,'err'); }
-  })();
-}
-function delAidProject(id){
-  var p=aidProject(id); if(!p) return;
-  if(!confirmDlg('确定删除项目「'+p.name+'」吗？\n该项目下的申报记录与已上传材料索引将一并删除（本地实体文件保留）。')) return;
-  (async function(){
-    try{
-      await Model.save('DELETE','/api/aid/projects/'+id);
-      if(F.aid.rPid===id) F.aid.rPid='';
-      aidRenderProjects(); toast('已删除项目','ok');
-    }catch(e){ toast(e.message,'err'); }
-  })();
-}
-
 /* ---------- 奖助管理：困难认定 ---------- */
 function openHardshipForm(id){
   var h = id ? hardshipRecords().find(function(x){ return x.id===id; }) : null;
@@ -789,6 +721,176 @@ function delHardship(id){
 }
 function currentYear(){ var y=new Date().getFullYear(); return (y-1)+'-'+y; }
 function currentTerm(){ var d=new Date(), m=d.getMonth()+1; return m>=9 ? d.getFullYear()+'-'+(d.getFullYear()+1) : (d.getFullYear()-1)+'-'+d.getFullYear(); }
+/* ---------- 奖助管理：奖学金 / 助学金（汇总展示，不审批） ---------- */
+function aidKindTitle(kind){ return kind==='grant' ? '助学金' : '奖学金'; }
+function aidLevelClass(l){ return {'一等':'tag-红','二等':'tag-橙','三等':'tag-黄','不记等次':'tag-其他'}[l]||'tag-其他'; }
+
+function downloadAidTemplate(kind){
+  var t=aidKindTitle(kind);
+  var head=['学号','名称','等次','获评学年','获评时间'].join(',');
+  var sample='202600101,国家奖学金,一等,2026-2027,2026-10-20';
+  download(t+'导入模板.csv','\uFEFF'+head+'\n'+sample+'\n','text/csv;charset=utf-8');
+  toast('模板已下载（学号 / 名称 / 等次 / 学年 / 获评时间 均为必填）');
+}
+function importAidModal(kind){
+  var t=aidKindTitle(kind);
+  openModal('<h2>批量导入'+t+'</h2><div class="m-sub">模板列为：学号、名称、等次、获评学年、获评时间，五项均必填。学号须与学生台账一致（自动绑定）；等次限 一等 / 二等 / 三等 / 不记等次；同一学生同一名称同学年已存在会跳过。未匹配到台账学号、等次无效或缺失必填项的行会跳过并列出明细。本模块仅汇总展示，不涉及审批。</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
+    +'<button class="btn btn-p" onclick="pickAidCsv(\''+kind+'\')">选择 CSV 文件</button>'
+    +'<button class="btn btn-g" onclick="pasteAidModal(\''+kind+'\')">从 Excel 粘贴</button>'
+    +'<button class="btn btn-g" onclick="downloadAidTemplate(\''+kind+'\')">下载导入模板</button>'
+    +'</div><div id="aidPreview" style="max-height:300px;overflow:auto"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button></div>');
+}
+function pickAidCsv(kind){
+  window.__aidKind=kind;
+  openFilePicker(function(file){
+    var fr=new FileReader();
+    fr.onload=function(){ showAidImportPreview(decodeText(fr.result)); };
+    fr.readAsArrayBuffer(file);
+  }, '.csv,.txt');
+}
+function pasteAidModal(kind){
+  window.__aidKind=kind;
+  openModal('<h2>从 Excel 粘贴导入'+aidKindTitle(kind)+'</h2><div class="m-sub">在 Excel 中选中五列表格区域（学号 / 名称 / 等次 / 获评学年 / 获评时间）并复制，粘贴到下方后点击“解析”。首行必须是表头。</div>'
+    +'<textarea id="aidPaste" rows="8" style="width:100%"></textarea>'
+    +'<div id="aidPreview" style="max-height:300px;overflow:auto"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="doAidPaste()">解析并预览</button></div>');
+}
+function doAidPaste(){
+  var ta=document.getElementById('aidPaste');
+  showAidImportPreview(ta?ta.value:'');
+}
+function showAidImportPreview(text){
+  var kind=window.__aidKind||'scholarship';
+  var box=document.getElementById('aidPreview'); if(!box) return;
+  var delim=guessDelim(text);
+  var rows=parseDelimited(text, delim);
+  if(rows.length<2){ box.innerHTML='<div class="empty"><div class="big">—</div>未能解析出有效数据行。</div>'; return; }
+  var colMap={}, i;
+  rows[0].forEach(function(hd,ix){
+    var s=String(hd||'').replace(/^\uFEFF/,'').trim();
+    if(s.indexOf('学号')>-1) colMap.xh=ix;
+    else if(s.indexOf('名称')>-1) colMap.name=ix;
+    else if(s.indexOf('等次')>-1) colMap.level=ix;
+    else if(s.indexOf('学年')>-1) colMap.year=ix;
+    else if(s.indexOf('获评时间')>-1 || s.indexOf('时间')>-1) colMap.time=ix;
+  });
+  if(colMap.xh===undefined || colMap.name===undefined){ box.innerHTML='<div class="empty"><div class="big">—</div>未识别到「学号」与「名称」表头。</div>'; return; }
+  var records=[], skips=[], seen={};
+  for(i=1;i<rows.length;i++){
+    var r=rows[i];
+    var xh=String(r[colMap.xh]==null?'':r[colMap.xh]).trim();
+    var name=colMap.name!==undefined?String(r[colMap.name]==null?'':r[colMap.name]).trim():'';
+    var level=colMap.level!==undefined?String(r[colMap.level]==null?'':r[colMap.level]).trim():'';
+    var year=colMap.year!==undefined?String(r[colMap.year]==null?'':r[colMap.year]).trim():'';
+    var tm=colMap.time!==undefined?String(r[colMap.time]==null?'':r[colMap.time]).trim():'';
+    if(!xh && !name && !level && !year && !tm){ skips.push({row:i+1, xh:'', name:'', reason:'整行为空'}); continue; }
+    if(!xh){ skips.push({row:i+1, xh:'', name:'', reason:'学号为空'}); continue; }
+    if(!name){ skips.push({row:i+1, xh:xh, name:'', reason:'名称为空'}); continue; }
+    if(AID_LEVELS.indexOf(level)===-1){ skips.push({row:i+1, xh:xh, name:name, reason:'等次无效（'+level+'），应为 一等/二等/三等/不记等次'}); continue; }
+    if(!year){ skips.push({row:i+1, xh:xh, name:name, reason:'获评学年为空'}); continue; }
+    if(!tm){ skips.push({row:i+1, xh:xh, name:name, reason:'获评时间为空'}); continue; }
+    var key=xh+'|'+name+'|'+year;
+    if(seen[key]){ skips.push({row:i+1, xh:xh, name:name, reason:'文件内同一学生同一名称同学年重复'}); continue; }
+    seen[key]=1;
+    records.push({row:i+1, xh:xh, name:name, level:level, year:year, time:tm});
+  }
+  window.__pendingAid=records;
+  var html='<div style="font-size:14px;margin-bottom:10px">解析完成：可导入 <b style="color:var(--green)">'+records.length+'</b> 条';
+  if(skips.length) html+='，跳过 <b style="color:var(--red)">'+skips.length+'</b> 条';
+  html+='</div>';
+  if(records.length){
+    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:14%"><col style="width:30%"><col style="width:14%"><col style="width:18%"><col style="width:24%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>名称</th><th>等次</th><th>获评学年</th><th>获评时间</th></tr></thead><tbody>';
+    records.slice(0,8).forEach(function(rec){
+      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.name)+'</td><td><span class="tag '+aidLevelClass(rec.level)+'">'+esc(rec.level)+'</span></td><td>'+esc(rec.year)+'</td><td>'+esc(rec.time)+'</td></tr>';
+    });
+    if(records.length>8) html+='<tr><td colspan="5" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
+    html+='</tbody></table>';
+    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="confirmAidImport()">确认导入 '+records.length+' 条</button></div>';
+  } else {
+    html+='<div class="empty"><div class="big">—</div>没有可导入的数据。</div>';
+  }
+  if(skips.length){
+    html+='<div style="font-size:13px;margin-top:14px;color:var(--muted)"><b style="color:var(--red)">跳过明细（请核对后修改重导）：</b></div>'
+      +'<table style="table-layout:fixed;width:100%;font-size:12.5px"><colgroup><col style="width:14%"><col style="width:16%"><col style="width:20%"><col style="width:50%"></colgroup><thead><tr style="background:#fdf3f3;color:var(--red)"><th style="padding:5px 8px;text-align:left">文件行号</th><th>学号</th><th>名称</th><th>跳过原因</th></tr></thead><tbody>';
+    skips.slice(0,20).forEach(function(sk){
+      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #fbe3e3">'+sk.row+'</td><td>'+esc(sk.xh||'')+'</td><td>'+esc(sk.name||'')+'</td><td>'+esc(sk.reason)+'</td></tr>';
+    });
+    if(skips.length>20) html+='<tr><td colspan="4" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (skips.length-20) +' 条略</td></tr>';
+    html+='</tbody></table>';
+  }
+  box.innerHTML=html;
+}
+function confirmAidImport(){
+  var records=window.__pendingAid||[];
+  if(!records.length){ toast('没有可导入的数据','err'); return; }
+  var kind=window.__aidKind||'scholarship';
+  (async function(){
+    try{
+      var json=await Model.save('POST','/api/import/'+(kind==='grant'?'grants':'scholarships'),{records:records});
+      closeModal(); aidRenderAidList(kind);
+      var s=json.skips||[];
+      var msg='已导入'+aidKindTitle(kind)+' '+json.imported+' 条';
+      if(s.length) msg+='，跳过 '+s.length+' 条（学号未匹配/等次无效/重复，可在重新导入时查看明细）';
+      toast(msg);
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
+function delAid(kind, id){
+  var t=aidKindTitle(kind);
+  if(!confirmDlg('确定删除这条'+t+'记录吗？')) return;
+  (async function(){
+    try{
+      await Model.save('DELETE','/api/'+(kind==='grant'?'grants':'scholarships')+'/'+id);
+      aidRenderAidList(kind); toast('已删除记录','ok');
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
+function exportAidDlg(kind){
+  var t=aidKindTitle(kind);
+  var stuCols=[['xh','学号'],['name','姓名'],['gender','性别'],['origin','籍贯'],['cls','班级'],['dorm','宿舍'],['nation','民族'],['zzmm','政治面貌'],['address','通讯地址'],['qq','QQ'],['phone','电话'],['note','备注']];
+  var aidCols=[['type','类型'],['name','名称'],['level','等次'],['year','获评学年'],['time','获评时间']];
+  var def=['stu_xh','stu_name','stu_cls','aid_name','aid_level','aid_year','aid_time'];
+  function chk(k,label){
+    return '<label style="display:inline-flex;gap:5px;align-items:center;font-size:13px;margin:4px 10px 4px 0;cursor:pointer"><input type="checkbox" class="aidExp" value="'+k+'"'+(def.indexOf(k)>-1?' checked':'')+'> '+label+'</label>';
+  }
+  openModal('<h2>导出'+t+'明细（链接学生台账）</h2><div class="m-sub">选择需要导出的数据列：学生台账列与该生'+t+'获评信息列，导出为 CSV 文件。仅汇总导出，不含审批信息。</div>'
+    +'<div style="margin-top:10px"><b style="font-size:14px">学生台账列</b><div style="margin-top:6px">'+stuCols.map(function(c){ return chk('stu_'+c[0], c[1]); }).join('')+'</div></div>'
+    +'<div style="margin-top:10px"><b style="font-size:14px">'+t+'列</b><div style="margin-top:6px">'+aidCols.map(function(c){ return chk('aid_'+c[0], c[1]); }).join('')+'</div></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="doExportAid(\''+kind+'\')">导出 CSV</button></div>');
+}
+function doExportAid(kind){
+  var t=aidKindTitle(kind);
+  var checked=[].map.call(document.querySelectorAll('.aidExp:checked'), function(c){ return c.value; });
+  if(!checked.length){ toast('请至少勾选一列','err'); return; }
+  var stuMap={xh:'学号',name:'姓名',gender:'性别',origin:'籍贯',cls:'班级',dorm:'宿舍',nation:'民族',zzmm:'政治面貌',address:'通讯地址',qq:'QQ',phone:'电话',note:'备注'};
+  var aidMap={type:'类型',name:'名称',level:'等次',year:'获评学年',time:'获评时间'};
+  var cols=checked.map(function(k){
+    return k.indexOf('stu_')===0 ? stuMap[k.slice(4)] : aidMap[k.slice(4)];
+  });
+  var list=aidList(kind).slice().sort(function(a,b){ return (b.year||'')<(a.year||'')?-1:1; });
+  function q(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }
+  var lines=[cols.map(q).join(',')];
+  list.forEach(function(r){
+    var s=getStudentByXh(r.xh)||{};
+    var row=[];
+    checked.forEach(function(k){
+      if(k.indexOf('stu_')===0){
+        var f=k.slice(4);
+        row.push(f==='xh' ? (r.xh!=null?r.xh:(s.xh||'')) : (s[f]!=null?s[f]:''));
+      } else {
+        var f=k.slice(4);
+        row.push(f==='type' ? t : (r[f]!=null?r[f]:''));
+      }
+    });
+    lines.push(row.map(q).join(','));
+  });
+  download(t+'明细_'+todayISO()+'.csv','\uFEFF'+lines.join('\n'),'text/csv;charset=utf-8');
+  closeModal();
+  toast('已导出 '+t+' 明细 CSV（'+list.length+' 行，'+cols.length+' 列，已链接学生台账）');
+}
+
 function downloadHardshipTemplate(){
   var head=['学号','等级','评议结果','学年'].join(',');
   var sample='202600001,特别困难,班级评议通过，公示无异议,2026-2027';
@@ -881,109 +983,6 @@ function confirmHardshipImport(){
   })();
 }
 
-/* ---------- 奖助管理：申报记录 ---------- */
-function aidAddSelected(){
-  var pid=F.aid.rPid; if(!pid){ toast('请先选择奖助项目','err'); return; }
-  var chks=document.querySelectorAll('.arChk:checked');
-  if(!chks.length){ toast('请先勾选要添加申报的学生','err'); return; }
-  var today=todayISO();
-  var sids=[].map.call(chks,function(c){ return c.value; });
-  var ok=0, err=0, i=0;
-  function next(){
-    if(i>=sids.length){
-      if(err){ toast('已添加 '+ok+' 条'+(err?'，'+err+' 条失败（可能已存在）':''), err?'err':'ok'); }
-      else toast('已为 '+ok+' 名学生添加申报');
-      aidRenderRecords();
-      return;
-    }
-    var sid=sids[i++];
-    Model.save('POST','/api/aid/records',{record:{pid:pid, sid:sid, applyDate:today, material:'', review:'待评审', amount:'', status:'待发放', note:''}})
-      .then(function(){ ok++; next(); })
-      .catch(function(){ err++; next(); });
-  }
-  next();
-}
-function openAidRecordForm(id){
-  var r = id ? aidRecords().find(function(x){ return x.id===id; }) : null;
-  if(!r){ toast('记录不存在','err'); return; }
-  var s=getStudent(r.sid)||{};
-  var p=aidProject(r.pid)||{};
-  openModal('<h2>编辑申报记录</h2><div class="m-sub">'+esc(p.name||'')+' · '+esc(s.name||'')+'（'+esc(s.xh||'')+'）</div>'
-    +'<div class="form-grid">'
-    +'<div class="form-item"><label>申请日期</label><input type="date" id="arDate" value="'+esc(r.applyDate||todayISO())+'"></div>'
-    +'<div class="form-item"><label>金额</label><input id="arAmount" value="'+esc(r.amount||'')+'" placeholder="如 4000 元"></div>'
-    +'<div class="form-item"><label>评审结果</label><select id="arReview">'+AID_REVIEWS.map(function(x){ return '<option'+(r.review===x?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item"><label>发放状态</label><select id="arStatus">'+AID_PAY.map(function(x){ return '<option'+(r.status===x?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item form-full"><label>材料说明</label><input id="arMaterial" value="'+esc(r.material||'')+'" placeholder="如 已提交家庭经济困难认定表、佐证材料"></div>'
-    +'<div class="form-item form-full"><label>备注</label><input id="arNote" value="'+esc(r.note||'')+'"></div>'
-    +'</div>'
-    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveAidRecord(\''+r.id+'\')">保存</button></div>');
-}
-function saveAidRecord(id){
-  var r=aidRecords().find(function(x){ return x.id===id; }); if(!r) return;
-  r.applyDate=document.getElementById('arDate').value||todayISO();
-  r.amount=document.getElementById('arAmount').value.trim();
-  r.review=document.getElementById('arReview').value;
-  r.status=document.getElementById('arStatus').value;
-  r.material=document.getElementById('arMaterial').value.trim();
-  r.note=document.getElementById('arNote').value.trim();
-  r.updatedAt=Date.now();
-  (async function(){
-    try{
-      await Model.save('PUT','/api/aid/records/'+id,{record:r});
-      closeModal(); aidRenderRecords(); toast('已保存申报记录');
-    }catch(e){ toast(e.message,'err'); }
-  })();
-}
-function delAidRecord(id){
-  var r=aidRecords().find(function(x){ return x.id===id; }); if(!r) return;
-  var s=getStudent(r.sid);
-  if(!confirmDlg('确定删除 '+(s?s.name:'')+' 的这条申报记录吗？')) return;
-  (async function(){
-    try{
-      await Model.save('DELETE','/api/aid/records/'+id);
-      aidRenderRecords(); toast('已删除申报记录','ok');
-    }catch(e){ toast(e.message,'err'); }
-  })();
-}
-function openAidUpload(sid, pid){
-  var s=getStudent(sid); if(!s) return;
-  var p=aidProject(pid);
-  openModal('<h2>上传奖助材料</h2>'
-    +'<div class="m-sub">'+(p?'项目：'+esc(p.name)+'<br>':'')+'学生：'+esc(s.name)+'（'+esc(s.xh)+'）。文件将存入项目本地「奖助文件」文件夹，并自动改名为 <b>YYYYMMDD-姓名-文件类型</b>。</div>'
-    +'<div class="form-item"><label>文件类型</label><select id="auType">'+AID_FILE_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item"><label>材料日期</label><input type="date" id="auDate" value="'+todayISO()+'"></div>'
-    +'<div id="auTip" style="font-size:13px;color:var(--muted);margin:10px 0">尚未选择文件。</div>'
-    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="pickAidFile(\''+sid+'\',\''+pid+'\')">选择文件并上传</button></div>');
-}
-function pickAidFile(sid, pid){
-  openFilePicker(function(file){
-    uploadAidFile(sid, pid, file);
-  }, '*');
-}
-function uploadAidFile(sid, pid, file){
-  var ftype=document.getElementById('auType').value;
-  var date=document.getElementById('auDate').value||todayISO();
-  var fd=new FormData();
-  fd.append('sid', sid); fd.append('pid', pid);
-  fd.append('type', ftype); fd.append('date', date);
-  fd.append('file', file, file.name);
-  document.getElementById('auTip').textContent='正在上传「'+file.name+'」…';
-  (async function(){
-    try{
-      var res=await fetch('/api/aid/upload', {method:'POST', body:fd});
-      var json={};
-      try{ json=await res.json(); }catch(e){}
-      if(!res.ok){ throw new Error((json&&json.error)||('上传失败（'+res.status+'）')); }
-      if(json.state) Model.data=json.state;
-      var f=json.payload&&json.payload.file;
-      closeModal(); aidRenderRecords();
-      toast('已上传并自动命名为 '+(f&&f.name||'')+'（存于「奖助文件」文件夹）');
-    }catch(e){ toast(e.message,'err'); }
-  })();
-}
-
-/* ---------- 谈话：批量导入 ---------- */
 function downloadTalkTemplate(){
   var head=['谈话时间','地点','姓名','学号','性别','年级','学历','话题','谈话要点记录','备注'].join(',');
   var sample='2026-09-15,办公室,张三,202600001,男,大一,本科,新生适应,已了解其高中情况与入学适应，建议参加班级活动。';

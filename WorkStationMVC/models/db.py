@@ -23,6 +23,8 @@ FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '
 AID_DIR = os.path.join(BASE_DIR, '奖助文件')
 # 奖助文件类型（用于上传时的选择与自动命名）
 AID_FILE_TYPES = ['认定表', '佐证材料', '申请表', '证明材料', '其他']
+# 奖学金 / 助学金等次（批量导入校验）
+AID_LEVELS = ('一等', '二等', '三等', '不记等次')
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -81,6 +83,22 @@ CREATE TABLE IF NOT EXISTS hardship_records (
   level TEXT DEFAULT '', review TEXT DEFAULT '',
   status TEXT DEFAULT '认定中', note TEXT DEFAULT '', updated_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS scholarships (
+  id TEXT PRIMARY KEY,
+  xh TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
+  level TEXT DEFAULT '', year TEXT DEFAULT '', time TEXT DEFAULT '',
+  note TEXT DEFAULT '', created_at INTEGER, updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scholarships_xh_name_year ON scholarships(xh, name, year) WHERE xh != '' AND name != '' AND year != '';
+
+CREATE TABLE IF NOT EXISTS grants (
+  id TEXT PRIMARY KEY,
+  xh TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
+  level TEXT DEFAULT '', year TEXT DEFAULT '', time TEXT DEFAULT '',
+  note TEXT DEFAULT '', created_at INTEGER, updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_grants_xh_name_year ON grants(xh, name, year) WHERE xh != '' AND name != '' AND year != '';
 
 CREATE TABLE IF NOT EXISTS aid_records (
   id TEXT PRIMARY KEY,
@@ -335,9 +353,9 @@ class Database:
         return {
             'students': students, 'talks': talks, 'files': files,
             'portraits': portraits, 'settings': settings, 'meta': meta,
-            'aidProjects': [self._aid_project_from_db(r) for r in self._q('aid_projects')],
             'hardshipRecords': [self._hardship_from_db(r) for r in self._q('hardship_records')],
-            'aidRecords': [self._aid_record_from_db(r) for r in self._q('aid_records')],
+            'scholarships': self.list_aid('scholarship'),
+            'grants': self.list_aid('grant'),
         }
 
     # ---------- 学生 ----------
@@ -640,6 +658,77 @@ class Database:
             imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh})
         return {'imported': len(imported), 'skips': skips, 'names': imported}
 
+    # ---------- 奖学金 / 助学金（汇总展示，仅导入/删除，不做审批） ----------
+    def _aid_from_db(self, row, kind):
+        return {
+            'id': row.get('id'), 'xh': row.get('xh'), 'name': row.get('name'),
+            'level': row.get('level'), 'year': row.get('year'), 'time': row.get('time'),
+            'note': row.get('note'), 'createdAt': row.get('created_at'),
+            'updatedAt': row.get('updated_at'),
+        }
+
+    def list_aid(self, kind):
+        return [self._aid_from_db(r, kind) for r in self._q(kind + 's', 'ORDER BY year DESC, xh')]
+
+    def delete_aid(self, kind, rid):
+        self._exec('DELETE FROM %s WHERE id=?' % (kind + 's'), (rid,))
+
+    def import_aid(self, kind, records):
+        """批量导入奖学金 / 助学金。records: [{xh, name, level, year, time}] → {imported, skips}。
+
+        学号与学生台账绑定；等次限 一等/二等/三等/不记等次；
+        学号 + 名称 + 学年 唯一，重复行跳过（含库内已有）。
+        """
+        imported = []
+        skips = []
+        st = self.state()['students']
+        by_xh = {}
+        for s in st:
+            if s.get('xh'):
+                by_xh.setdefault(str(s['xh']).strip(), s)
+        table = kind + 's'
+        exist = set()
+        for r in self._q(table):
+            if r.get('xh') and r.get('name') and r.get('year'):
+                exist.add((str(r['xh']).strip(), str(r['name']).strip(), str(r['year']).strip()))
+        for idx, rec in enumerate(records, start=2):
+            xh = str(rec.get('xh') or '').strip()
+            name = str(rec.get('name') or '').strip()
+            level = str(rec.get('level') or '').strip()
+            year = str(rec.get('year') or '').strip()
+            tm = str(rec.get('time') or '').strip()
+            if not xh and not name and not level and not year and not tm:
+                continue
+            if not xh:
+                skips.append({'row': idx, 'reason': '学号为空'})
+                continue
+            stu = by_xh.get(xh)
+            if not stu:
+                skips.append({'row': idx, 'reason': '学号未匹配到台账学生（' + xh + '）'})
+                continue
+            if not name:
+                skips.append({'row': idx, 'reason': '奖学金/助学金名称为空'})
+                continue
+            if level not in AID_LEVELS:
+                skips.append({'row': idx, 'reason': '等次无效（' + (level or '空') + '），应为 一等/二等/三等/不记等次'})
+                continue
+            if not year:
+                skips.append({'row': idx, 'reason': '获评学年为空'})
+                continue
+            if not tm:
+                skips.append({'row': idx, 'reason': '获评时间为空'})
+                continue
+            key = (xh, name, year)
+            if key in exist:
+                skips.append({'row': idx, 'reason': '该生' + year + '学年“' + name + '”已存在'})
+                continue
+            exist.add(key)
+            now = _now()
+            self._exec('INSERT INTO %s (id, xh, name, level, year, time, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)' % table,
+                       (_uid(), xh, name, level, year, tm, str(rec.get('note') or ''), now, now))
+            imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh})
+        return {'imported': len(imported), 'skips': skips, 'names': imported}
+
     def import_concerns(self, records):
         """批量导入重点关注。records: [{xh, type, level}] → {imported, skips}。
 
@@ -811,10 +900,12 @@ class Database:
 
     # ---------- 导入旧备份 / 示例 / 清空 ----------
     def import_backup(self, d):
-        """导入旧版备份 JSON（含 students/talks/files/portraits/settings/meta）。"""
+        """导入备份 JSON（含 students/talks/files/portraits/settings/meta，兼容旧版奖助项目/申报记录与新版奖学金/助学金）。"""
         now = _now()
         # 清空后导入，保证与备份一致
-        for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta'):
+        for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta',
+                      'scholarships', 'grants', 'hardship_records',
+                      'aid_projects', 'aid_records'):
             self._exec('DELETE FROM %s' % table)
         for s in (d.get('students') or []):
             s = dict(s)
@@ -847,6 +938,42 @@ class Database:
         for p in (d.get('portraits') or []):
             self._exec('INSERT OR REPLACE INTO portraits (sid, tags, updated_at) VALUES (?,?,?)',
                        (p.get('sid'), json.dumps(p.get('tags') or [], ensure_ascii=False), p.get('updatedAt') or now))
+        # 新版：奖学金 / 助学金
+        for kind, key in (('scholarship', 'scholarships'), ('grant', 'grants')):
+            for r in (d.get(key) or []):
+                r = dict(r)
+                r.setdefault('id', _uid())
+                self._exec('INSERT INTO %s (id, xh, name, level, year, time, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)' % (kind + 's'),
+                           (r.get('id'), str(r.get('xh') or ''), str(r.get('name') or ''),
+                            str(r.get('level') or ''), str(r.get('year') or ''), str(r.get('time') or ''),
+                            str(r.get('note') or ''), r.get('createdAt') or now, r.get('updatedAt') or now))
+        # 旧版：困难认定 / 奖助项目 / 申报记录（保留数据兼容）
+        for h in (d.get('hardshipRecords') or []):
+            h = dict(h)
+            h.setdefault('id', _uid())
+            h.setdefault('updatedAt', now)
+            vals = self._hardship_to_db(h)
+            cols = ', '.join(vals.keys())
+            ph = ', '.join(['?'] * len(vals))
+            self._exec('INSERT INTO hardship_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        for p in (d.get('aidProjects') or []):
+            p = dict(p)
+            p.setdefault('id', _uid())
+            p.setdefault('createdAt', now)
+            p.setdefault('updatedAt', now)
+            vals = self._aid_project_to_db(p)
+            cols = ', '.join(vals.keys())
+            ph = ', '.join(['?'] * len(vals))
+            self._exec('INSERT INTO aid_projects (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        for r in (d.get('aidRecords') or []):
+            r = dict(r)
+            r.setdefault('id', _uid())
+            r.setdefault('createdAt', now)
+            r.setdefault('updatedAt', now)
+            vals = self._aid_record_to_db(r)
+            cols = ', '.join(vals.keys())
+            ph = ', '.join(['?'] * len(vals))
+            self._exec('INSERT INTO aid_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
         self.save_settings(d.get('settings'))
         meta = d.get('meta') or {}
         for k, v in meta.items():
@@ -927,9 +1054,21 @@ class Database:
             cols = ', '.join(vals.keys())
             ph = ', '.join(['?'] * len(vals))
             self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        # 奖学金 / 助学金示例（虚构，仅供演示汇总展示与导出）
+        aid_examples = [
+            {'kind': 'scholarship', 'xh': '202600101', 'name': '国家奖学金', 'level': '一等', 'year': '2026-2027', 'time': '2026-10-20'},
+            {'kind': 'scholarship', 'xh': '202600105', 'name': '国家励志奖学金', 'level': '二等', 'year': '2026-2027', 'time': '2026-10-21'},
+            {'kind': 'scholarship', 'xh': '202600106', 'name': '校级一等奖学金', 'level': '一等', 'year': '2026-2027', 'time': '2026-10-21'},
+            {'kind': 'grant', 'xh': '202600102', 'name': '国家助学金', 'level': '一等', 'year': '2026-2027', 'time': '2026-10-15'},
+            {'kind': 'grant', 'xh': '202600103', 'name': '国家助学金', 'level': '二等', 'year': '2026-2027', 'time': '2026-10-15'},
+            {'kind': 'grant', 'xh': '202600105', 'name': '国家助学金', 'level': '一等', 'year': '2026-2027', 'time': '2026-10-15'},
+        ]
+        for r in aid_examples:
+            self.import_aid(r['kind'], [r])
         self.set_meta('seedAt', now)
 
     def reset(self):
         for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta',
-                      'aid_projects', 'hardship_records', 'aid_records'):
+                      'aid_projects', 'hardship_records', 'aid_records',
+                      'scholarships', 'grants'):
             self._exec('DELETE FROM %s' % table)

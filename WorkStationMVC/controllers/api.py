@@ -227,15 +227,7 @@ def _dispatch(handler, db, method):
         if not stu:
             _err(handler, 400, '学生不存在')
             return
-        if pid:
-            ok = False
-            for p in db.state()['aidProjects']:
-                if p['id'] == pid:
-                    ok = True
-                    break
-            if not ok:
-                _err(handler, 400, '奖助项目不存在')
-                return
+        # 兼容旧版奖助项目材料索引：pid 仅作为记录保留，不再校验项目存在
         if len(up['content']) > 100 * 1024 * 1024:
             _err(handler, 400, '文件过大（超过 100 MB）')
             return
@@ -355,6 +347,24 @@ def _dispatch(handler, db, method):
             return
         result = db.import_hardship(records)
         _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
+        return
+
+    # ---- 批量导入奖学金 / 助学金 ----
+    if method == 'POST' and res == 'import' and len(parts) >= 3 and parts[2] in ('scholarships', 'grants'):
+        records = body.get('records') or []
+        if not isinstance(records, list):
+            _err(handler, 400, '参数缺失')
+            return
+        kind = 'scholarship' if parts[2] == 'scholarships' else 'grant'
+        result = db.import_aid(kind, records)
+        _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
+        return
+
+    # ---- 删除单条奖学金 / 助学金 ----
+    if method == 'DELETE' and res in ('scholarships', 'grants') and len(parts) >= 3:
+        kind = 'scholarship' if res == 'scholarships' else 'grant'
+        db.delete_aid(kind, parts[2])
+        _ok(handler, db)
         return
 
     # ---- 批量导入谈话 ----

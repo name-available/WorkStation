@@ -95,9 +95,9 @@ def main():
     # v2.1：启动即自动迁移并读取数据库，打印数据加载概况
     try:
         _st = DB.state()
-        print('  已自动读取数据库并加载至工作站：学生 %d 人 · 谈话 %d 条 · 文件索引 %d 个 · 奖助项目 %d 个 · 困难认定 %d 条 · 申报记录 %d 条'
+        print('  已自动读取数据库并加载至工作站：学生 %d 人 · 谈话 %d 条 · 文件索引 %d 个 · 困难认定 %d 条 · 奖学金 %d 条 · 助学金 %d 条'
               % (len(_st.get('students', [])), len(_st.get('talks', [])), len(_st.get('files', [])),
-                 len(_st.get('aidProjects', [])), len(_st.get('hardshipRecords', [])), len(_st.get('aidRecords', []))))
+                 len(_st.get('hardshipRecords', [])), len(_st.get('scholarships', [])), len(_st.get('grants', []))))
     except Exception as e:  # pragma: no cover
         print('  数据库读取概况失败：%s' % e)
 
