@@ -72,6 +72,51 @@ function delStudent(id){
 }
 
 /* ---------- 谈话 ---------- */
+function addTalkForStudent(sid){
+  /* v2.6.1：重点关注 → 新增谈心谈话：跳转到谈心谈话并打开新增记录（预填该生） */
+  var s=getStudent(sid); if(!s) return;
+  F.talks.q=s.name;
+  go('talks');
+  openTalkForm('', s.id);
+}
+function pickTalkFile(){
+  var el=document.getElementById('tStu'); var sid=el? el.getAttribute('data-sid') : '';
+  if(!sid){ toast('请先在上方选择谈话学生','err'); return; }
+  var type=document.getElementById('tAttType').value;
+  var date=document.getElementById('tAttDate').value;
+  openFilePicker(function(file){ uploadTalkFile(sid, type, date, file); }, '*');
+}
+function uploadTalkFile(sid, type, date, file){
+  var s=getStudent(sid); if(!s) return;
+  var fd=new FormData();
+  fd.append('sid', sid);
+  fd.append('type', type||'谈话记录');
+  fd.append('date', date||todayISO());
+  fd.append('file', file, file.name);
+  var tip=document.getElementById('tAttTip');
+  if(tip) tip.textContent='正在上传「'+file.name+'」…';
+  (async function(){
+    try{
+      var res=await fetch('/api/talks/upload', {method:'POST', body:fd});
+      var json={};
+      try{ json=await res.json(); }catch(e){}
+      if(!res.ok){ throw new Error((json&&json.error)||('上传失败（'+res.status+'）')); }
+      if(json.state) Model.data=json.state;
+      if(tip) tip.textContent='';
+      renderTalkAtts();
+      toast('已上传并自动命名为 '+(json.payload&&json.payload.file&&json.payload.file.name||file.name)+'（存于本地「谈话文件」文件夹，已绑定该生画像）');
+    }catch(e){ if(tip) tip.textContent=''; toast(e.message,'err'); }
+  })();
+}
+function delTalkAtt(id){
+  if(!confirmDlg('确定删除该附件的索引记录吗？只删除记录，不删除本地实体文件。')) return;
+  (async function(){
+    try{
+      await Model.save('DELETE','/api/files/'+id);
+      renderTalkAtts(); toast('已删除索引','ok');
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
 function saveTalk(id){
   var sid=document.getElementById('tStu').getAttribute('data-sid');
   var time=document.getElementById('tTime').value;
@@ -233,6 +278,56 @@ function savePortraitTag(sid){
 }
 
 /* ---------- 文件索引 ---------- */
+function importFileDlg(){
+  openModal('<h2>导入文件到本地文件夹</h2><div class="m-sub">选择本地文件后，文件本体会被复制存入项目「<b>文件中心文件</b>」文件夹（保留原文件名，同名自动加序号），并登记文件索引，可在文件中心「预览」（使用默认浏览器打开）或「打开所在地」（在访达中定位）。</div>'
+    +'<div class="form-grid">'
+    +'<div class="form-item"><label>分类</label><select id="impCat"><option value="">未分类</option>'+catDict().map(function(c){ return '<option>'+esc(c)+'</option>'; }).join('')+'</select></div>'
+    +'<div class="form-item"><label>标签（逗号分隔）</label><input id="impTags" placeholder="如 活动材料, 总结"></div>'
+    +'<div class="form-item"><label>日期</label><input type="date" id="impDate" value="'+todayISO()+'"></div>'
+    +'<div class="form-item form-full"><label>备注</label><input id="impNote" placeholder="可选"></div>'
+    +'</div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="pickImportFile()">选择文件并导入</button></div>');
+}
+function pickImportFile(){
+  var category=document.getElementById('impCat').value;
+  var tags=document.getElementById('impTags').value;
+  var date=document.getElementById('impDate').value;
+  var note=document.getElementById('impNote').value;
+  openFilePicker(function(file){ uploadImportFile(file, category, tags, date, note); }, '*');
+}
+function uploadImportFile(file, category, tags, date, note){
+  var fd=new FormData();
+  fd.append('file', file, file.name);
+  if(category) fd.append('category', category);
+  if(tags) fd.append('tags', tags);
+  if(date) fd.append('date', date);
+  if(note) fd.append('note', note);
+  (async function(){
+    try{
+      var res=await fetch('/api/files/import', {method:'POST', body:fd});
+      var json={};
+      try{ json=await res.json(); }catch(e){}
+      if(!res.ok){ throw new Error((json&&json.error)||('导入失败（'+res.status+'）')); }
+      if(json.state) Model.data=json.state;
+      closeModal();
+      go('files');
+      toast('已导入「'+(json.payload&&json.payload.file&&json.payload.file.name||file.name)+'」到本地文件夹（文件中心文件/）');
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
+function previewFile(id){
+  var f=Model.files().find(function(x){ return x.id===id; });
+  if(!f || !f.relPath){ toast('该索引未关联本地文件，无法预览','err'); return; }
+  window.open('/api/files/'+id+'/open', '_blank');
+}
+function openFileLoc(id){
+  (async function(){
+    try{
+      await Model.save('POST','/api/files/'+id+'/openfolder');
+      toast('已在访达中打开文件所在地');
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
 function saveFile(id){
   var name=document.getElementById('fName').value.trim();
   if(!name){ toast('文件名不能为空','err'); return; }
@@ -323,6 +418,79 @@ function pickFolder(){
 }
 
 /* ---------- 重点关注 ---------- */
+function openFocusAdjustModal(sid){
+  var s=getStudent(sid); if(!s) return;
+  var checked={}; normConcerns(s.concerns).forEach(function(c){ checked[c.t]=c.l; });
+  var lvCss={'红':'var(--red)','橙':'var(--amber)','黄':'#a37f1f','严重':'var(--red)','一般':'#a37f1f'};
+  var concernHtml=CONCERN_TYPES.map(function(t){
+    return '<div style="display:flex;align-items:center;gap:6px;margin:5px 0;flex-wrap:wrap"><span style="width:40px;font-size:14px;color:#3d4c5e">'+t+'</span>'
+      +levelsOf(t).map(function(l){
+        var on=checked[t]===l, col=lvCss[l];
+        return '<label style="cursor:pointer;font-size:13px;padding:3px 12px;border-radius:999px;border:1px solid '+(on?col:'var(--border)')+';background:'+(on?col:'#fff')+';color:'+(on?'#fff':'var(--muted)')+'"><input type="radio" name="fcc_'+t+'" value="'+l+'"'+(on?' checked':'')+' style="display:none">'+l+'</label>';
+      }).join('')
+      +'<label style="cursor:pointer;font-size:13px;color:var(--muted);padding:3px 10px"><input type="radio" name="fcc_'+t+'" value=""'+(checked[t]?'':' checked')+' style="display:none">无</label>'
+      +'</div>';
+  }).join('');
+  openModal('<h2>'+esc(s.name)+' · 重点关注调整</h2>'
+    +'<div class="m-sub">一名学生可同时标记多类重点关注（如 经济·黄 + 心理·一般），但同一类型只能保留一个级别（选择新级别会替换该类型原级别；选择「无」则解除该类型）。保存后同步到学生台账与画像。</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0">'+concernHtml+'</div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveFocusConcerns(\''+sid+'\')">保存关注调整</button></div>');
+  /* v2.6.1：点击级别标签时即时更新选中反馈（选中项变色、同组其余取消） */
+  document.querySelectorAll('#modalRoot input[name^="fcc_"]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      document.querySelectorAll('#modalRoot input[name="'+inp.name+'"]').forEach(function(o){
+        var lb=o.closest('label');
+        if(lb){ lb.style.background='#fff'; lb.style.color='var(--muted)'; lb.style.borderColor='var(--border)'; }
+      });
+      if(inp.checked && inp.value){
+        var lb=inp.closest('label');
+        var col=(inp.value==='红'||inp.value==='严重')?'var(--red)':(inp.value==='橙'?'var(--amber)':'#a37f1f');
+        if(lb){ lb.style.background=col; lb.style.color='#fff'; lb.style.borderColor=col; }
+      }
+    });
+  });
+}
+function openFocusUploadModal(sid){
+  var s=getStudent(sid); if(!s) return;
+  var fls=focusFilesOf(sid);
+  openModal('<h2>'+esc(s.name)+' · 上传关注材料</h2>'
+    +'<div class="m-sub">支持 '+(focusTypesDict().join(' / '))+' 等文件。上传后存入项目内「重点关注文件」文件夹，并自动改名为 <b>YYYYMMDD-姓名-文件类型.扩展名</b>；文件类型下拉可在设置-字典管理中维护。文件本体只保存在本机。</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px">'
+    +'<div class="form-item" style="margin:0"><label>文件类型</label><select id="fcTypeSel">'+focusTypesDict().map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select></div>'
+    +'<div class="form-item" style="margin:0"><label>日期</label><input type="date" id="fcDate" value="'+todayISO()+'"></div>'
+    +'<button class="btn btn-p" onclick="pickFocusFile(\''+s.id+'\')">选择文件并上传</button>'
+    +'</div>'
+    +'<div id="fcFileTip" style="font-size:12.5px;color:var(--muted);margin-top:8px"></div>'
+    +'<div style="margin-top:14px;font-weight:700;color:var(--navy);font-size:14px">已归档材料（'+fls.length+' 份）</div>'
+    +'<div id="fcFileList" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button></div>');
+  var box=document.getElementById('fcFileList');
+  if(fls.length){
+    var html='';
+    fls.slice().sort(function(a,b){ return (b.date||'')<(a.date||'')?-1:1; }).forEach(function(f){
+      html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+        +'<span style="font-weight:600;word-break:break-all">'+esc(f.name)+'</span>'
+        +'<span class="badge badge-gray">'+esc((f.tags&&f.tags[0])||'其他')+'</span>'
+        +'<span style="font-size:12px;color:var(--muted)">'+ymd(f.date)+'</span>'
+        +'<span style="font-size:12px;color:var(--muted)">'+esc(f.size||'')+'</span>'
+        +(f.relPath?'<button class="btn btn-xs" onclick="previewFile(\''+f.id+'\')">预览</button><button class="btn btn-xs" onclick="openFileLoc(\''+f.id+'\')">打开所在地</button>':'')
+        +'<button class="btn btn-d btn-xs" onclick="delFocusFileModal(\''+f.id+'\')">删除索引</button></div>';
+    });
+    box.innerHTML=html;
+  } else box.innerHTML='<div style="font-size:13px;color:var(--muted)">还没有上传材料。选择上方文件类型与日期后上传即可。</div>';
+}
+function delFocusFileModal(id){
+  if(!confirmDlg('确定删除该文件的索引记录吗？只删除记录，不删除本地实体文件。')) return;
+  (async function(){
+    try{
+      await Model.save('DELETE','/api/files/'+id);
+      renderFocusTable();
+      var sid=F.focus.sid;
+      if(sid) openFocusUploadModal(sid); else closeModal();
+      toast('已删除索引','ok');
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
 function saveFocusConcerns(sid){
   var s=getStudent(sid); if(!s) return;
   var concerns=[];
@@ -429,6 +597,8 @@ function saveDicts(){
       var set=Model.settings();
       set.topicDict=document.getElementById('setTopics').value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
       set.catDict=document.getElementById('setCats').value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
+      var ft=document.getElementById('setFocusTypes');
+      if(ft) set.focusTypes=ft.value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
       await Model.save('PUT','/api/settings',{settings:set});
       RENDERERS.settings(); toast('字典已保存');
     }catch(e){ toast(e.message,'err'); }
@@ -446,9 +616,30 @@ function connectDb(){
       var r=await Model._api('GET','/api/dbinfo');
       var d=r.db||r;
       var info=document.getElementById('dbConnInfo');
-      if(info) info.innerHTML='<span style="color:var(--green)">已连接数据库：</span>'+esc(d.path)+'（'+d.sizeMB+' MB）· 学生 '+d.students+' 人、谈话 '+d.talks+' 条、文件 '+d.files+' 个';
+      if(info) info.innerHTML='<span style="color:var(--green)">已连接数据库：</span>'+esc(d.path)+'（'+d.sizeMB+' MB）· 学生 '+d.students+' 人、谈话 '+d.talks+' 条、文件 '+d.files+' 个'+(d.kind==='empty'?'（<b style="color:var(--amber)">空测试库</b>）':'（正式库）');
       toast('数据库连接成功，数据已加载至工作站');
     }catch(e){ toast('连接失败：'+e.message,'err'); }
+  })();
+}
+function switchEmptyDb(){
+  if(!confirmDlg('切换到空测试库 db/test.db 后，当前界面将加载该空库（可存入测试用数据），与正式库 workstation.db 相互独立。确定链接空库吗？')) return;
+  (async function(){
+    try{
+      await Model.save('POST','/api/db/switch',{target:'empty'});
+      go('home');
+      toast('已切换到空测试库 db/test.db（数据相互独立）');
+      RENDERERS.settings();
+    }catch(e){ toast(e.message,'err'); }
+  })();
+}
+function switchMainDb(){
+  (async function(){
+    try{
+      await Model.save('POST','/api/db/switch',{target:'main'});
+      go('home');
+      toast('已切回正式库 db/workstation.db');
+      RENDERERS.settings();
+    }catch(e){ toast(e.message,'err'); }
   })();
 }
 function exportDbBackup(){
@@ -460,7 +651,7 @@ function exportDbBackup(){
       download('辅导员工作站数据库备份_'+todayISO()+'.db', blob, 'application/octet-stream');
       var meta=Model.meta(); meta.lastBackup=todayISO();
       await Model.save('PUT','/api/settings',{settings:Model.settings(), meta:meta});
-      RENDERERS.settings(); toast('已导出 db 格式备份');
+      RENDERERS.settings(); toast('已导出 DATABASE 备份');
     }catch(e){ toast(e.message,'err'); }
   })();
 }
@@ -494,6 +685,28 @@ function importBackup(){
     };
     fr.readAsText(file);
   }, '.json');
+}
+function importDbBackup(){
+  if(!confirmDlg('导入 DATABASE 备份将用所选 .db 文件覆盖当前数据库，操作不可撤销，建议先导出备份。确定继续吗？')) return;
+  openFilePicker(function(file){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var fd=new FormData();
+      fd.append('file', new Blob([fr.result]), file.name);
+      (async function(){
+        try{
+          var res=await fetch('/api/backup/import-db', {method:'POST', body:fd});
+          var json={};
+          try{ json=await res.json(); }catch(e){}
+          if(!res.ok){ throw new Error((json&&json.error)||('导入失败（'+res.status+'）')); }
+          if(json.state) Model.data=json.state;
+          go('home');
+          toast('DATABASE 备份已导入：学生 '+Model.students().length+' 人、谈话 '+Model.talks().length+' 条');
+        }catch(e){ toast(e.message,'err'); }
+      })();
+    };
+    fr.readAsArrayBuffer(file);
+  }, '.db,.sqlite,.sqlite3');
 }
 function seedDemo(){
   if(Model.students().length || Model.talks().length || Model.files().length){

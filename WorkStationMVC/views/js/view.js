@@ -384,9 +384,16 @@ function openStudentForm(id){
   document.getElementById('sGender').value=v.gender||'';
 }
 /* ---------- 重点关注 ---------- */
+/* v2.6：上传关注材料文件类型改为读取设置字典（settings.focusTypes，可在设置-字典管理维护） */
 var FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '其他'];
+function focusTypesDict(){ var s=Model.settings(); return (s&&s.focusTypes&&s.focusTypes.length)?s.focusTypes:FOCUS_TYPES; }
 function focusStudents(){ return Model.students().filter(function(s){ return (s.concerns||[]).length>0; }); }
+/* v2.6：重点关注材料（category=重点关注）；v2.7：画像关联材料（该生全部绑定文件：谈话附件 / 重点关注材料 / 奖助材料 / 文件索引） */
 function focusFilesOf(sid){ return Model.files().filter(function(f){ return f.category==='重点关注' && f.sid===sid; }); }
+function portraitFilesOf(sid){
+  var s=getStudent(sid); if(!s) return [];
+  return Model.files().filter(function(f){ return f.sid===sid || (f.name||'').indexOf(s.name)>-1 || (f.name||'').indexOf(s.xh)>-1; });
+}
 function lvlRank(l){ return (l==='红'||l==='严重')?0:(l==='橙'?1:2); }
 function focusMaxLevel(s){ var r=2,i; for(i=0;i<(s.concerns||[]).length;i++){ var k=lvlRank(s.concerns[i].l); if(k<r) r=k; } return r; }
 RENDERERS.focus = function(){
@@ -432,77 +439,24 @@ function renderFocusTable(){
   list.sort(function(a,b){ var ra=focusMaxLevel(a), rb=focusMaxLevel(b); if(ra!==rb) return ra-rb; return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
   var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:12%"><col style="width:26%"><col style="width:10%"><col style="width:32%"></colgroup>'
     +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>重点关注</th><th>材料数</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注，或使用「批量导入重点关注」按学号导入。')+'</td></tr>';
-  list.forEach(function(s){
+  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注，或使用「批量导入重点关注」按学号导入。')+'</td></tr>';  list.forEach(function(s){
     var tags=(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('');
-    html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+focusFilesOf(s.id).length+'</td>'
-      +'<td><div class="ops"><button onclick="selectFocusStudent(\''+s.id+'\')">调整</button><button onclick="focusUpload(\''+s.id+'\')">上传</button><button onclick="goPortrait(\''+s.id+'\')">画像</button></div></td></tr>';
+    html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+portraitFilesOf(s.id).length+'</td>'
+      +'<td><div class="ops"><button onclick="openFocusAdjustModal(\''+s.id+'\')">调整</button><button onclick="openFocusUploadModal(\''+s.id+'\')">上传</button><button onclick="addTalkForStudent(\''+s.id+'\')">新增谈心谈话</button><button onclick="goPortrait(\''+s.id+'\')">查看画像</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名重点关注学生</div>';
-  html+='<div id="focusDetail"></div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名重点关注学生。每行「调整」在弹窗中修改关注级别；「上传」在弹窗中上传证明材料 / 谈话记录 / 家访记录 / 一生一策等文件（类型可在设置-字典管理维护）；「新增谈心谈话」跳转并预填该生；「查看画像」打开该生画像。</div>';
   document.getElementById('focusBox').innerHTML=html;
-  var sel = F.focus.sid && getStudent(F.focus.sid) ? getStudent(F.focus.sid) : (list.length? list[0] : null);
-  if(sel){ F.focus.sid=sel.id; renderFocusDetail(sel); }
 }
 function selectFocusStudent(sid){
   F.focus.sid=sid;
   renderFocusTable();
-  var s=getStudent(sid); if(s){ renderFocusDetail(s); var el=document.getElementById('focusAdjustBox'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); setTimeout(function(){ if(el) el.scrollIntoView({behavior:'auto',block:'start'}); }, 350); }
+  openFocusAdjustModal(sid);
 }
 function focusUpload(sid){
   F.focus.sid=sid;
   renderFocusTable();
-  var s=getStudent(sid); if(s){ renderFocusDetail(s); var el=document.getElementById('focusUploadBox'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); setTimeout(function(){ if(el) el.scrollIntoView({behavior:'auto',block:'start'}); }, 350); }
-}
-function renderFocusDetail(s){
-  var checked={}; normConcerns(s.concerns).forEach(function(c){ checked[c.t]=c.l; });
-  var lvCss={'红':'var(--red)','橙':'var(--amber)','黄':'#a37f1f','严重':'var(--red)','一般':'#a37f1f'};
-  var concernHtml=CONCERN_TYPES.map(function(t){
-    return '<div style="display:flex;align-items:center;gap:6px;margin:5px 0;flex-wrap:wrap"><span style="width:40px;font-size:14px;color:#3d4c5e">'+t+'</span>'
-      +levelsOf(t).map(function(l){
-        var on=checked[t]===l, col=lvCss[l];
-        return '<label style="cursor:pointer;font-size:13px;padding:3px 12px;border-radius:999px;border:1px solid '+(on?col:'var(--border)')+';background:'+(on?col:'#fff')+';color:'+(on?'#fff':'var(--muted)')+'"><input type="radio" name="fcc_'+t+'" value="'+l+'"'+(on?' checked':'')+' style="display:none">'+l+'</label>';
-      }).join('')
-      +'<label style="cursor:pointer;font-size:13px;color:var(--muted);padding:3px 10px"><input type="radio" name="fcc_'+t+'" value=""'+(checked[t]?'':' checked')+' style="display:none">无</label>'
-      +'</div>';
-  }).join('');
-  var fls=focusFilesOf(s.id);
-  var html='<div class="card focus-detail" id="focusAdjustBox">'
-    +'<h3>'+esc(s.name)+' · 重点关注调整</h3>'
-    +'<div class="m-sub">设置或解除该生在 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类上的关注级别。保存后同步到学生台账与画像。</div>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0">'
-    +concernHtml
-    +'<button class="btn btn-p" onclick="saveFocusConcerns(\''+s.id+'\')">保存关注调整</button></div>'
-    +'</div>';
-  html+='<div class="card" id="focusUploadBox"><h3>上传关注材料（'+esc(s.name)+'）</h3>'
-    +'<div class="m-sub">支持 证明材料 / 谈话记录 / 家访记录 / 一生一策 等文件。上传后存入项目内「重点关注文件」文件夹，并自动改名为 <b>YYYYMMDD-姓名-文件类型.扩展名</b>；文件本体只保存在本机。</div>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px">'
-    +'<div class="form-item" style="margin:0"><label>文件类型</label><select id="fcTypeSel">'+FOCUS_TYPES.map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('')+'</select></div>'
-    +'<div class="form-item" id="fcCustomWrap" style="margin:0;display:none"><label>自定义类型</label><input id="fcCustom" placeholder="如 家访照片"></div>'
-    +'<div class="form-item" style="margin:0"><label>日期</label><input type="date" id="fcDate" value="'+todayISO()+'"></div>'
-    +'<button class="btn btn-p" onclick="pickFocusFile(\''+s.id+'\')">选择文件并上传</button>'
-    +'</div>'
-    +'<div id="fcFileTip" style="font-size:12.5px;color:var(--muted);margin-top:8px"></div>'
-    +'</div>';
-  html+='<div class="card"><h3>已归档材料（'+fls.length+' 份）</h3>';
-  if(fls.length){
-    html+='<div style="display:flex;flex-direction:column;gap:7px">';
-    fls.slice().sort(function(a,b){ return (b.date||'')<(a.date||'')?-1:1; }).forEach(function(f){
-      html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
-        +'<span style="font-weight:600;word-break:break-all">'+esc(f.name)+'</span>'
-        +'<span class="badge badge-gray">'+esc((f.tags&&f.tags[0])||'其他')+'</span>'
-        +'<span style="font-size:12px;color:var(--muted)">'+ymd(f.date)+'</span>'
-        +'<span style="font-size:12px;color:var(--muted)">'+esc(f.size||'')+'</span>'
-        +'<button class="btn btn-d btn-xs" onclick="delFocusFile(\''+f.id+'\')">删除索引</button></div>';
-    });
-    html+='</div><div style="font-size:12.5px;color:var(--muted);margin-top:8px">删除索引不会删除文件夹中的实体文件；实体文件位于项目「重点关注文件」文件夹，可在上方打开查看。</div>';
-  } else html+=emptyBox('还没有上传材料。选择上方文件类型与日期后上传即可。');
-  html+='</div>';
-  document.getElementById('focusDetail').innerHTML=html;
-  document.getElementById('fcTypeSel').addEventListener('change', function(){
-    document.getElementById('fcCustomWrap').style.display = this.value==='其他' ? 'block':'none';
-  });
+  openFocusUploadModal(sid);
 }
 
 /* ---------- 奖助管理 ---------- */
@@ -681,15 +635,26 @@ function renderTalksTable(){
   html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条记录（共 '+Model.talks().length+' 条）</div>';
   document.getElementById('talksBox').innerHTML=html;
 }
-function openTalkForm(id){
+function openTalkForm(id, presetSid){
   var t = id ? Model.talks().find(function(x){ return x.id===id; }) : null;
-  var v = t || { sid:'', time:todayISO(), place:'', topic:'', level:'g', content:'', traits:'', followUp:'', followDate:'', done:false };
+  var v = t || { sid:(presetSid||''), time:todayISO(), place:'', topic:'', level:'g', content:'', traits:'', followUp:'', followDate:'', done:false };
   var s = v.sid ? getStudent(v.sid) : null;
   var tip = s ? ('<span style="color:var(--green);font-size:13px">已关联：'+esc(s.name)+' · '+esc(s.xh)+' · '+esc(s.cls||'未填班级')+'</span>') : '';
   var levelSeg='<div class="seg" id="lvSeg">'
     +['g|一般','a|需关注','r|重点关注'].map(function(x){ var p=x.split('|'); return '<button type="button" data-lv="'+p[0]+'" class="'+(v.level===p[0]?'on':'')+'">'+p[1]+'</button>'; }).join('')
     +'</div>';
-  openModal('<h2>'+(id?'编辑谈话记录':'新增谈话记录')+'</h2><div class="m-sub">选择学生后会带出班级等信息；谈话内容请如实摘要记录，建议包含关键信息。</div>'
+  var attHtml='<div class="card talk-att" style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px">'
+    +'<div style="font-weight:700;color:var(--navy);margin-bottom:4px">谈话附件（照片 / 谈话记录）</div>'
+    +'<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">可上传照片或谈话记录文档（Word / PDF / 图片等）。上传后存入项目「<b>谈话文件</b>」文件夹，自动命名为 <b>YYYYMMDD-学生姓名-谈话记录/照片-文件编号</b>（编号用于当日对同一学生多次上传）；附件同时绑定该生<b>学生画像 → 关联材料</b>，可在画像中预览或打开所在地。</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">'
+    +'<div class="form-item" style="margin:0"><label>附件类型</label><select id="tAttType"><option>谈话记录</option><option>照片</option></select></div>'
+    +'<div class="form-item" style="margin:0"><label>日期</label><input type="date" id="tAttDate" value="'+v.time+'"></div>'
+    +'<button class="btn btn-p" onclick="pickTalkFile()">选择文件并上传</button>'
+    +'</div>'
+    +'<div id="tAttTip" style="font-size:12.5px;color:var(--muted);margin-top:8px"></div>'
+    +'<div id="tAttList" style="margin-top:10px;display:flex;flex-direction:column;gap:6px"></div>'
+    +'</div>';
+  openModal('<h2>'+(id?'编辑谈话记录':'新增谈话记录')+'</h2><div class="m-sub">选择学生后会带出班级等信息；谈话内容请如实摘要记录，建议包含关键信息。可在下方为该次谈话添加照片或谈话记录附件。</div>'
     +'<div class="form-grid">'
     +'<div class="form-item form-full"><label><span class="req">*</span>谈话学生（输入姓名或学号选择）</label>'
     +'<input id="tStu" list="studentList" value="'+esc(s? s.name:'')+'" placeholder="输入姓名或学号"><datalist id="studentList">'
@@ -705,9 +670,38 @@ function openTalkForm(id){
     +'<div class="form-item"><label>后续跟进事项</label><input id="tFollow" value="'+esc(v.followUp||'')+'" placeholder="如 一周后回访"></div>'
     +'<div class="form-item"><label>跟进日期</label><input type="date" id="tFollowDate" value="'+esc(v.followDate||'')+'"></div>'
     +'</div>'
+    +attHtml
     +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="saveTalk(\''+(id||'')+'\')">保存记录</button></div>');
-  document.getElementById('tStu').addEventListener('change', function(){ resolveTalkStudent(); });
+  document.getElementById('tStu').addEventListener('change', function(){ resolveTalkStudent(); renderTalkAtts(); });
   if(v.sid) document.getElementById('tStu').setAttribute('data-sid', v.sid);
+  /* v2.6.1：关注等级分段按钮点击反馈（选中变深色、其余取消） */
+  document.querySelectorAll('#lvSeg button').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('#lvSeg button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+  renderTalkAtts();
+}
+function renderTalkAtts(){
+  var box=document.getElementById('tAttList'); if(!box) return;
+  var el=document.getElementById('tStu'); var sid=el? el.getAttribute('data-sid') : '';
+  if(!sid){ box.innerHTML='<div style="font-size:13px;color:var(--muted)">先在上方选择谈话学生，即可查看 / 上传该生附件。</div>'; return; }
+  var s=getStudent(sid); if(!s){ box.innerHTML=''; return; }
+  var fls=Model.files().filter(function(f){ return f.source==='谈话附件' && f.sid===sid; });
+  fls.sort(function(a,b){ return (b.date||'')<(a.date||'')?-1:1; });
+  if(!fls.length){ box.innerHTML='<div style="font-size:13px;color:var(--muted)">该生暂无谈话附件。选择文件上传后，将自动命名为 YYYYMMDD-'+esc(s.name)+'-类型-编号。</div>'; return; }
+  var html='';
+  fls.forEach(function(f){
+    html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+      +'<span style="font-weight:600;word-break:break-all">'+esc(f.name)+'</span>'
+      +'<span class="badge badge-gray">'+esc((f.tags&&f.tags[0])||'谈话记录')+'</span>'
+      +'<span style="font-size:12px;color:var(--muted)">'+ymd(f.date)+'</span>'
+      +'<span style="font-size:12px;color:var(--muted)">'+esc(f.size||'')+'</span>'
+      +(f.relPath?'<button class="btn btn-xs" onclick="previewFile(\''+f.id+'\')">预览</button><button class="btn btn-xs" onclick="openFileLoc(\''+f.id+'\')">打开所在地</button>':'')
+      +'<button class="btn btn-d btn-xs" onclick="delTalkAtt(\''+f.id+'\')">删除索引</button></div>';
+  });
+  box.innerHTML=html;
 }
 function resolveTalkStudent(){
   var val=document.getElementById('tStu').value.trim(); var tip=document.getElementById('tStuTip'); if(!tip) return;
@@ -742,14 +736,11 @@ function goPortrait(id){
   F.portrait.sid=id;
   go('portrait');
 }
-function goFocusAdd(id){
-  F.focus.sid=id;
-  go('focus');
-}
 function renderPortrait(sid){
   var s=getStudent(sid); if(!s) return;
   var talks=Model.talks().filter(function(t){ return t.sid===sid; }).sort(function(a,b){ return (b.time||'')<(a.time||'')?-1:1; });
-  var files=Model.files().filter(function(f){ return (f.name||'').indexOf(s.name)>-1 || (f.name||'').indexOf(s.xh)>-1; });
+  /* v2.7：关联材料统一走 portraitFilesOf（sid 绑定优先，兼容旧数据按姓名/学号匹配） */
+  var files=portraitFilesOf(sid);
   var tm=todayISO();
 
   var html='';
@@ -771,7 +762,7 @@ function renderPortrait(sid){
     +'</div>'
     +'<div style="margin-top:12px"><span style="font-size:13px;color:var(--muted);margin-right:6px">重点关注</span>'
     +((s.concerns||[]).length?(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join(''):'<span style="color:var(--muted);font-size:13px">未标记</span>')
-    +' <button class="btn btn-p btn-xs" onclick="goFocusAdd(\''+s.id+'\')">新增 / 调整重点关注</button>'
+    +' <button class="btn btn-p btn-xs" onclick="openFocusAdjustModal(\''+s.id+'\')">新增 / 调整重点关注</button>'
     +'</div>'
     +'<div style="margin-top:8px"><span style="font-size:13px;color:var(--muted);margin-right:6px">画像标签</span>'
     +((portraitTagsOf(s.id)).length?portraitTagsOf(s.id).map(function(c){ return '<span class="tag tag-其他">'+esc(c)+'</span>'; }).join(''):'<span style="color:var(--muted);font-size:13px">暂无，可手动补充</span>')
@@ -836,11 +827,13 @@ function renderPortrait(sid){
   html+='<div class="section-title">关联材料（文件索引）</div><div class="card">';
   if(files.length){
     html+='<div style="display:flex;flex-direction:column;gap:6px">';
-    files.forEach(function(f){
-      html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span style="font-weight:600">'+esc(f.name)+'</span><span class="badge badge-gray">'+esc(f.category||'未分类')+'</span><span style="font-size:12px;color:var(--muted)">'+ymd(f.date)+'</span><span style="font-size:12px;color:var(--muted)">'+esc(f.tags&&f.tags.length?f.tags.join('、'):'')+'</span></div>';
+    files.slice().sort(function(a,b){ return (b.date||'')<(a.date||'')?-1:1; }).forEach(function(f){
+      html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span style="font-weight:600">'+esc(f.name)+'</span><span class="badge badge-gray">'+esc(f.category||'未分类')+'</span><span style="font-size:12px;color:var(--muted)">'+ymd(f.date)+'</span><span style="font-size:12px;color:var(--muted)">'+esc(f.tags&&f.tags.length?f.tags.join('、'):'')+'</span>'
+        +(f.relPath?'<button class="btn btn-xs" onclick="previewFile(\''+f.id+'\')">预览</button><button class="btn btn-xs" onclick="openFileLoc(\''+f.id+'\')">打开所在地</button>':'')
+        +'</div>';
     });
-    html+='</div>';
-  } else html+=emptyBox('文件索引中暂无与该生姓名或学号匹配的文件。可在文件中心注册。');
+    html+='</div><div style="font-size:12.5px;color:var(--muted);margin-top:8px">「预览」使用默认浏览器打开文件，「打开所在地」在访达中定位；文件实体位于项目「文件中心文件 / 重点关注文件 / 谈话文件 / 奖助文件」相应文件夹。</div>';
+  } else html+=emptyBox('暂无与该生绑定的文件（谈话附件、重点关注材料等会自动绑定到画像）。可在谈心谈话上传附件、重点关注上传材料，或在文件中心导入。');
   html+='</div>';
 
   document.getElementById('portraitBox').innerHTML=html;
@@ -857,13 +850,13 @@ function addPortraitTag(sid){
 
 /* ---------- 文件中心 ---------- */
 RENDERERS.files = function(){
-  var acts='<button class="btn btn-p" onclick="openFileForm()">注册文件</button>';
+  var acts='<button class="btn btn-p" onclick="importFileDlg()">导入文件</button><button class="btn btn-g" onclick="openFileForm()">注册文件</button>';
   if(window.showDirectoryPicker) acts+='<button class="btn btn-g" onclick="pickFolder()">选择文件夹索引</button>';
   acts+='<button class="btn btn-g" onclick="exportFiles()">导出索引 CSV</button>';
   document.getElementById('viewActions').innerHTML=acts;
   var tags={}; Model.files().forEach(function(f){ (f.tags||[]).forEach(function(t){ if(t) tags[t]=1; }); });
   var tagHtml=Object.keys(tags).sort().map(function(t){ return '<option>'+esc(t)+'</option>'; }).join('');
-  var html='<div class="dropzone" id="dropZone"><div style="font-size:15px;color:var(--navy);font-weight:600">拖拽文件到此处注册索引</div><div style="margin-top:4px">仅记录文件名、分类、标签与日期等元数据；文件本体留在你的本地文件夹，不会被移动或上传。</div></div>'
+  var html='<div class="dropzone" id="dropZone"><div style="font-size:15px;color:var(--navy);font-weight:600">拖拽文件到此处注册索引</div><div style="margin-top:4px">仅记录文件名、分类、标签与日期等元数据；文件本体留在你的本地文件夹，不会被移动或上传。「导入文件」会把文件本体复制存入项目「文件中心文件」文件夹，支持预览与打开文件所在地。</div></div>'
     +'<div class="toolbar">'
     +'<input type="search" placeholder="按文件名查询（不检索内容）" value="'+esc(F.files.q)+'" oninput="filesApply()" id="flQ">'
     +'<select id="flCat" onchange="filesApply()"><option value="">全部分类</option>'+catDict().map(function(c){ return '<option>'+esc(c)+'</option>'; }).join('')+'</select>'
@@ -900,17 +893,20 @@ function renderFilesTable(){
   if(F.files.cat) list=list.filter(function(f){ return f.category===F.files.cat; });
   if(F.files.tag) list=list.filter(function(f){ return (f.tags||[]).indexOf(F.files.tag)>-1; });
   list.sort(function(a,b){ return (b.date||'')<(a.date||'')?-1:1; });
-  var html='<div class="table-wrap"><table><colgroup><col style="width:30%"><col style="width:11%"><col style="width:13%"><col style="width:9%"><col style="width:10%"><col style="width:10%"><col style="width:17%"></colgroup>'
+  var html='<div class="table-wrap"><table><colgroup><col style="width:26%"><col style="width:10%"><col style="width:11%"><col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:28%"></colgroup>'
     +'<thead><tr><th>文件名</th><th>分类</th><th>标签</th><th>日期</th><th>大小</th><th>来源</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length){ html+='<tr><td colspan="7">'+emptyBox('还没有文件索引。拖拽文件到上方区域，或点击右上角“注册文件”。')+'</td></tr>'; }
+  if(!list.length){ html+='<tr><td colspan="7">'+emptyBox('还没有文件索引。点击右上角“导入文件”把文件本体存入项目「文件中心文件」文件夹，或拖拽文件注册索引。')+'</td></tr>'; }
   list.forEach(function(f){
+    var hasLocal=!!f.relPath;
     html+='<tr><td style="font-weight:600;word-break:break-all">'+esc(f.name)+'</td><td>'+(f.category?'<span class="badge badge-gray">'+esc(f.category)+'</span>':'<span style="color:var(--muted)">—</span>')+'</td>'
       +'<td>'+(f.tags&&f.tags.length?f.tags.map(function(t){ return '<span class="tag tag-其他">'+esc(t)+'</span>'; }).join(''):'—')+'</td>'
       +'<td>'+ymd(f.date)+'</td><td style="font-size:12.5px;color:var(--muted)">'+esc(f.size||'—')+'</td><td style="font-size:12.5px;color:var(--muted)">'+esc(f.source||'注册')+'</td>'
-      +'<td><div class="ops"><button onclick="openFileForm(\''+f.id+'\')">编辑</button><button onclick="delFile(\''+f.id+'\')">删除索引</button></div></td></tr>';
+      +'<td><div class="ops">'
+      +(hasLocal?'<button onclick="previewFile(\''+f.id+'\')">预览</button><button onclick="openFileLoc(\''+f.id+'\')">打开所在地</button>':'<button onclick="previewFile(\''+f.id+'\')" disabled style="opacity:.45;cursor:not-allowed">预览</button>')
+      +'<button onclick="openFileForm(\''+f.id+'\')">编辑</button><button onclick="delFile(\''+f.id+'\')">删除索引</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 个索引（共 '+Model.files().length+' 个）。查询仅匹配文件名，不检索文件内容。</div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 个索引（共 '+Model.files().length+' 个）。查询仅匹配文件名，不检索文件内容。「预览」使用默认浏览器打开文件；「打开所在地」在访达中定位该文件。</div>';
   document.getElementById('filesBox').innerHTML=html;
 }
 function openFileForm(id){
@@ -943,32 +939,37 @@ RENDERERS.settings = function(){
   html+='<div class="card"><h3>默认设置</h3><div class="form-grid">'
     +'<div class="form-item"><label>默认谈话人（新增记录时自动填入）</label><input id="setTalker" value="'+esc(set.talker||'')+'"></div>'
     +'</div><div style="margin-top:14px"><button class="btn btn-p" onclick="saveDefaults()">保存默认设置</button></div></div>';
-  html+='<div class="card"><h3>字典管理</h3><p style="margin:0 0 10px;font-size:13px;color:var(--muted)">每行一个词条，用于谈话话题与文件分类的下拉建议。</p>'
+  html+='<div class="card"><h3>字典管理</h3><p style="margin:0 0 10px;font-size:13px;color:var(--muted)">每行一个词条，用于谈话话题、文件分类与重点关注上传材料类型的下拉建议。</p>'
     +'<div class="form-grid">'
     +'<div class="form-item"><label>谈话话题字典</label><textarea id="setTopics" rows="6">'+(topicDict().map(esc).join('\n'))+'</textarea></div>'
     +'<div class="form-item"><label>文件分类字典</label><textarea id="setCats" rows="6">'+(catDict().map(esc).join('\n'))+'</textarea></div>'
+    +'<div class="form-item form-full"><label>重点关注文件类型字典</label><textarea id="setFocusTypes" rows="4">'+(focusTypesDict().map(esc).join('\n'))+'</textarea>'
+    +'<div style="font-size:12.5px;color:var(--muted);margin-top:4px">用于重点关注「上传关注材料」时的类型下拉；上传文件名将按「YYYYMMDD-姓名-所选类型」自动命名。</div></div>'
     +'</div><div style="margin-top:14px"><button class="btn btn-p" onclick="saveDicts()">保存字典</button></div></div>';
   html+='<div class="card"><h3>数据存储（SQLite 数据库）</h3>'
-    +'<p style="margin:0 0 12px;font-size:13px;color:var(--muted)">全部业务数据（学生台账、谈心谈话、文件索引、画像标签、设置）均保存在本机 SQLite 数据库文件中。每次新增、修改、删除数据后自动写入数据库，无需手动保存或导出。</p>'
-    +'<div id="dbConnInfo" style="margin-bottom:10px;font-size:13px;color:var(--muted)">未连接数据库，点击下方按钮连接本机 workstation.db。</div>'
+    +'<p style="margin:0 0 12px;font-size:13px;color:var(--muted)">全部业务数据（学生台账、谈心谈话、文件索引、画像标签、设置）均保存在本机 SQLite 数据库文件中。每次新增、修改、删除数据后自动写入数据库，无需手动保存或导出。正式库为 <b>db/workstation.db</b>；另提供空测试库 <b>db/test.db</b>（可存储测试用数据），方便在正式数据外试操作。</p>'
+    +'<div id="dbConnInfo" style="margin-bottom:10px;font-size:13px;color:var(--muted)">未连接数据库，点击下方按钮连接本机工作站数据库。</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
     +'<button class="btn btn-p" onclick="connectDb()">连接数据库</button>'
+    +'<button class="btn btn-g" onclick="switchEmptyDb()">链接空库（测试用）</button>'
+    +'<button class="btn btn-g" onclick="switchMainDb()">切回正式库</button>'
     +'<button class="btn btn-g" onclick="openDbDir()">打开数据库所在文件夹</button>'
     +'</div></div>';
   html+='<div class="card"><h3>数据保险与清理（可选）</h3>'
-    +'<p style="margin:0 0 10px;font-size:13px;color:var(--muted)">数据库已自动持久化，无需手动备份。以下操作用于版本升级前保险、换机迁移、恢复或清理。</p>'
+    +'<p style="margin:0 0 10px;font-size:13px;color:var(--muted)">数据库已自动持久化，无需手动备份。以下操作用于版本升级前保险、换机迁移、恢复或清理。导出备份可选 DATABASE（.db 文件副本）或 JSON（跨版本迁移用）两种格式；导入备份同样支持 JSON 与 DATABASE 两种。</p>'
     +(meta.lastBackup?'<p style="margin:0 0 10px;font-size:13px;color:var(--green)">上次手动导出：'+ymd(meta.lastBackup)+'</p>':'')
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    +'<button class="btn btn-g" onclick="exportDbBackup()">导出 db 格式备份</button>'
+    +'<button class="btn btn-g" onclick="exportDbBackup()">导出 DATABASE 备份</button>'
     +'<button class="btn btn-g" onclick="exportBackup()">导出 JSON 备份</button>'
-    +'<button class="btn btn-g" onclick="importBackup()">导入备份</button>'
+    +'<button class="btn btn-g" onclick="importBackup()">导入 JSON 备份</button>'
+    +'<button class="btn btn-g" onclick="importDbBackup()">导入 DATABASE 备份</button>'
     +'<button class="btn btn-g" onclick="seedDemo()">载入示例数据</button>'
     +'<button class="btn btn-d" onclick="clearAllData()">清空全部数据</button>'
     +'</div></div>';
   html+='<div class="card"><h3>使用说明</h3><div style="font-size:14px;line-height:1.8;color:#3d4c5e">'
-    +'<div><b>1. 数据在哪：</b>所有数据保存在本机 SQLite 数据库 db/workstation.db。双击“启动工作站.command”启动服务，用浏览器打开 http://127.0.0.1:8790/ 使用；关闭终端窗口即停止服务（数据始终保留在数据库中）。</div>'
-    +'<div><b>2. 换机迁移：</b>先“导出备份”得到 JSON 文件，拷贝到新电脑后“导入备份”；也可直接拷贝整个数据库文件 db/workstation.db。</div>'
-    +'<div><b>3. 文件怎么管理：</b>文件本体保留在你的本地文件夹，系统只登记文件名、分类、标签等元数据，因此查询只匹配文件名，不检索内容。</div>'
+    +'<div><b>1. 数据在哪：</b>所有数据保存在本机 SQLite 数据库 db/workstation.db；另有 db/test.db 空测试库（设置-数据存储可一键链接，用于测试操作，不污染正式数据）。双击“启动工作站.command”启动服务，用浏览器打开 http://127.0.0.1:8790/ 使用；关闭终端窗口即停止服务（数据始终保留在数据库中）。</div>'
+    +'<div><b>2. 换机迁移：</b>先“导出 DATABASE / JSON 备份”得到文件，拷贝到新电脑后对应“导入 DATABASE / JSON 备份”；也可直接拷贝整个数据库文件 db/workstation.db。</div>'
+    +'<div><b>3. 文件怎么管理：</b>“导入文件”会把文件本体存入项目「文件中心文件」文件夹（可预览、可打开所在地）；“注册文件”仅登记文件名、分类、标签等元数据，因此查询只匹配文件名，不检索内容。</div>'
     +'<div><b>4. 安全提示：</b>学生谈话与家庭信息属敏感个人信息，本服务仅监听本机回环地址（127.0.0.1），不会对外网开放；建议对存放项目的磁盘启用文件保险箱加密。</div>'
     +'</div></div>';
   document.getElementById('view-settings').innerHTML=html;

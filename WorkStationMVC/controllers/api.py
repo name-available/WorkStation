@@ -12,7 +12,7 @@ import re
 import sqlite3
 import urllib.parse
 
-from models.db import Database
+from models.db import Database, DB_PATH, TEST_DB_PATH
 
 
 def _json_resp(handler, code, obj):
@@ -106,12 +106,26 @@ def _check_origin(handler):
 
 
 def handle_api(handler, db, method):
+    # v2.5：活动数据库挂在 server 实例上（设置可切换 正式库/空测试库）
+    db = getattr(getattr(handler, 'server', None), 'ws_db', None) or db
     try:
         _dispatch(handler, db, method)
     except sqlite3.IntegrityError as e:
         _err(handler, 400, '数据唯一性冲突：' + str(e))
     except Exception as e:  # noqa
         _err(handler, 500, '服务器错误：' + str(e))
+
+
+def _db_kind(path):
+    """返回当前库类型：正式库 / 测试库。"""
+    try:
+        if os.path.abspath(path) == os.path.abspath(TEST_DB_PATH):
+            return 'empty'
+        if os.path.abspath(path) == os.path.abspath(DB_PATH):
+            return 'main'
+    except Exception:
+        pass
+    return 'other'
 
 
 def _dispatch(handler, db, method):
@@ -133,6 +147,7 @@ def _dispatch(handler, db, method):
         _ok(handler, db, {'db': {
             'path': _p,
             'name': os.path.basename(_p),
+            'kind': _db_kind(_p),
             'size': _sz,
             'sizeMB': round(_sz / 1048576.0, 2),
             'students': len(_st.get('students') or []),
@@ -168,6 +183,105 @@ def _dispatch(handler, db, method):
     if method == 'POST' and res == 'db' and len(parts) >= 3 and parts[2] == 'openfolder':
         db.open_db_dir()
         _ok(handler, db, {'ok': True})
+        return
+
+    # ---- 文件中心：导入文件到本地文件夹（multipart，须在读取 JSON body 之前处理） ----
+    if method == 'POST' and res == 'files' and len(parts) >= 3 and parts[2] == 'import':
+        fields = _parse_multipart(handler)
+        date = (fields.get('date') or '').strip()
+        category = (fields.get('category') or '').strip()
+        note = (fields.get('note') or '').strip()
+        up = fields.get('file')
+        if not up or not up.get('content'):
+            _err(handler, 400, '请选择要导入的文件')
+            return
+        if len(up['content']) > 200 * 1024 * 1024:
+            _err(handler, 400, '文件过大（超过 200 MB）')
+            return
+        tags = [t.strip() for t in re.split(r'[,，、]', fields.get('tags') or '') if t.strip()]
+        f, err = db.save_file_import(
+            up['content'], up.get('filename') or '', _fmt_size(len(up['content'])),
+            date or None, category, tags, note)
+        if err:
+            _err(handler, 500, err)
+            return
+        _ok(handler, db, {'payload': {'file': {'id': f['id'], 'name': f['name'], 'relPath': f['relPath']}}})
+        return
+
+    # ---- 文件中心：预览（使用默认浏览器打开文件本体） ----
+    if method == 'GET' and res == 'files' and len(parts) >= 4 and parts[3] == 'open':
+        absp, err = db.file_abs_path(parts[2])
+        if err:
+            _err(handler, 404, err)
+            return
+        _ext = os.path.splitext(absp)[1].lower()
+        _ctype = {
+            '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+            '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp',
+            '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8',
+            '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8',
+            '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+        }.get(_ext, 'application/octet-stream')
+        try:
+            with open(absp, 'rb') as _fh:
+                _data = _fh.read()
+        except Exception as e:  # noqa
+            _err(handler, 500, '读取文件失败：' + str(e))
+            return
+        _disp = 'inline' if _ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
+                                     '.pdf', '.txt', '.md', '.csv', '.html', '.htm', '.json') else 'attachment'
+        handler.send_response(200)
+        handler.send_header('Content-Type', _ctype)
+        handler.send_header('Content-Disposition', _disp)
+        handler.send_header('Content-Length', str(len(_data)))
+        handler.end_headers()
+        handler.wfile.write(_data)
+        return
+
+    # ---- 文件中心：打开文件所在地（在访达中定位文件） ----
+    if method == 'POST' and res == 'files' and len(parts) >= 4 and parts[3] == 'openfolder':
+        ok, msg = db.open_file_in_finder(parts[2])
+        if not ok:
+            _err(handler, 400, msg or '无法打开文件所在地')
+            return
+        _ok(handler, db, {'ok': True})
+        return
+
+    # ---- 导入 DATABASE 备份（multipart：校验 SQLite 魔数与必需表，覆盖当前活动库后重连） ----
+    if method == 'POST' and res == 'backup' and len(parts) >= 3 and parts[2] == 'import-db':
+        fields = _parse_multipart(handler)
+        up = fields.get('file')
+        if not up or not up.get('content'):
+            _err(handler, 400, '请选择 DATABASE（.db）备份文件')
+            return
+        _data = up['content']
+        if len(_data) < 16 or _data[:16] != b'SQLite format 3\x00':
+            _err(handler, 400, '文件不是有效的 SQLite 数据库备份')
+            return
+        _tmp = db.path + '.importtmp'
+        try:
+            with open(_tmp, 'wb') as _fh:
+                _fh.write(_data)
+            _chk = sqlite3.connect(_tmp)
+            _tabs = [r[0] for r in _chk.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            _chk.close()
+            if 'students' not in _tabs or 'talks' not in _tabs:
+                _err(handler, 400, '备份数据库缺少 students / talks 表，不是工作站数据库')
+                return
+            db.close()
+            os.replace(_tmp, db.path)
+            _ndb = Database(db.path)
+        except Exception as e:  # noqa
+            try:
+                if os.path.exists(_tmp):
+                    os.remove(_tmp)
+            except Exception:
+                pass
+            _err(handler, 500, '导入 DATABASE 备份失败：' + str(e))
+            return
+        handler.server.ws_db = _ndb
+        _ok(handler, _ndb)
         return
 
     if method != 'GET' and not _check_origin(handler):
@@ -208,6 +322,38 @@ def _dispatch(handler, db, method):
         _ok(handler, db)
         return
 
+    # ---- 谈话：附件上传（multipart：照片 / 谈话记录文档，命名 YYYYMMDD-姓名-类型-编号） ----
+    if method == 'POST' and res == 'talks' and len(parts) >= 3 and parts[2] == 'upload':
+        fields = _parse_multipart(handler)
+        sid = (fields.get('sid') or '').strip()
+        ftype = (fields.get('type') or '谈话记录').strip()
+        date = (fields.get('date') or '').strip()
+        up = fields.get('file')
+        if not sid or not up or not up.get('content'):
+            _err(handler, 400, '参数缺失：请选择学生与附件文件')
+            return
+        stu = None
+        for x in db.state()['students']:
+            if x['id'] == sid:
+                stu = x
+                break
+        if not stu:
+            _err(handler, 400, '学生不存在')
+            return
+        if ftype not in ('谈话记录', '照片'):
+            ftype = '谈话记录'
+        if len(up['content']) > 100 * 1024 * 1024:
+            _err(handler, 400, '文件过大（超过 100 MB）')
+            return
+        f, err = db.save_talk_upload(
+            sid, stu['name'], ftype, up['content'],
+            up.get('filename') or '', _fmt_size(len(up['content'])), date or None)
+        if err:
+            _err(handler, 500, err)
+            return
+        _ok(handler, db, {'payload': {'file': {'id': f['id'], 'name': f['name']}}})
+        return
+
     # ---- 奖助：材料上传（multipart，须在读取 JSON body 之前处理） ----
     if method == 'POST' and res == 'aid' and len(parts) >= 3 and parts[2] == 'upload':
         fields = _parse_multipart(handler)
@@ -245,6 +391,33 @@ def _dispatch(handler, db, method):
         return
 
     body = _read_body(handler)
+
+    # ---- 切换数据库：正式库 / 空测试库（设置-数据存储-链接空库） ----
+    if method == 'POST' and res == 'db' and len(parts) >= 3 and parts[2] == 'switch':
+        target = (body.get('target') or 'main').strip()
+        if target == 'empty':
+            _path = TEST_DB_PATH
+        else:
+            _path = DB_PATH
+        try:
+            db.close()
+            _ndb = Database(_path)
+        except Exception as e:  # noqa
+            _err(handler, 500, '切换数据库失败：' + str(e))
+            return
+        handler.server.ws_db = _ndb
+        _p = os.path.abspath(_ndb.path)
+        _st = _ndb.state()
+        _ok(handler, _ndb, {'db': {
+            'path': _p,
+            'name': os.path.basename(_p),
+            'kind': _db_kind(_p),
+            'size': os.path.getsize(_p) if os.path.exists(_p) else 0,
+            'students': len(_st.get('students') or []),
+            'talks': len(_st.get('talks') or []),
+            'files': len(_st.get('files') or []),
+        }})
+        return
 
     # ---- 学生 ----
     if method == 'POST' and res == 'students':
@@ -378,20 +551,6 @@ def _dispatch(handler, db, method):
         return
 
     # ---- 奖助管理 ----
-    if method == 'POST' and res == 'aid' and len(parts) >= 3 and parts[2] == 'projects':
-        p = body.get('project') or {}
-        if not p.get('name'):
-            _err(handler, 400, '项目名称不能为空')
-            return
-        _ok(handler, db, {'payload': {'project': db.add_aid_project(p)}})
-        return
-    if method == 'PUT' and res == 'aid' and len(parts) >= 4 and parts[2] == 'projects':
-        _ok(handler, db, {'payload': {'project': db.update_aid_project(body.get('project') or {})}})
-        return
-    if method == 'DELETE' and res == 'aid' and len(parts) >= 4 and parts[2] == 'projects':
-        db.delete_aid_project(parts[3])
-        _ok(handler, db)
-        return
     if method == 'POST' and res == 'aid' and len(parts) >= 3 and parts[2] == 'hardship':
         h = body.get('hardship') or {}
         if not h.get('sid') or not h.get('year'):
@@ -406,22 +565,8 @@ def _dispatch(handler, db, method):
         db.delete_hardship(parts[3])
         _ok(handler, db)
         return
-    if method == 'POST' and res == 'aid' and len(parts) >= 3 and parts[2] == 'records':
-        r = body.get('record') or {}
-        if not r.get('pid') or not r.get('sid'):
-            _err(handler, 400, '项目与学生不能为空')
-            return
-        _ok(handler, db, {'payload': {'record': db.add_aid_record(r)}})
-        return
-    if method == 'PUT' and res == 'aid' and len(parts) >= 4 and parts[2] == 'records':
-        _ok(handler, db, {'payload': {'record': db.update_aid_record(body.get('record') or {})}})
-        return
-    if method == 'DELETE' and res == 'aid' and len(parts) >= 4 and parts[2] == 'records':
-        db.delete_aid_record(parts[3])
-        _ok(handler, db)
-        return
 
-    # ---- 导入旧备份 ----
+    # ---- 导入 JSON 备份 ----
     if method == 'POST' and res == 'backup' and len(parts) >= 3 and parts[2] == 'import':
         backup = body.get('backup') or {}
         if not isinstance(backup.get('students'), list) or not isinstance(backup.get('talks'), list):

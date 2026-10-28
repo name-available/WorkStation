@@ -102,6 +102,8 @@ def main():
         print('  数据库读取概况失败：%s' % e)
 
     httpd = HTTPServer((HOST, port), Handler)
+    # v2.5：活动数据库挂载到 server 实例（设置-数据存储可切换 正式库/空测试库）
+    httpd.ws_db = DB
     url = 'http://127.0.0.1:%d/' % port
     print('=' * 52)
     print('  辅导员工作站 · 本地版已启动')

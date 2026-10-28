@@ -15,6 +15,8 @@ import sqlite3
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_DIR = os.path.join(BASE_DIR, 'db')
 DB_PATH = os.path.join(DB_DIR, 'workstation.db')
+# 空数据库（测试用库，可存储测试用数据；设置-数据存储可一键链接切换）
+TEST_DB_PATH = os.path.join(DB_DIR, 'test.db')
 # 重点关注文件存储目录（上传的文件会存入此文件夹，并自动改名为 YYYYMMDD-姓名-文件类型）
 FOCUS_DIR = os.path.join(BASE_DIR, '重点关注文件')
 # 重点关注文件的类型（用于上传时的选择与自动命名）
@@ -23,6 +25,10 @@ FOCUS_TYPES = ['证明材料', '谈话记录', '家访记录', '一生一策', '
 AID_DIR = os.path.join(BASE_DIR, '奖助文件')
 # 奖助文件类型（用于上传时的选择与自动命名）
 AID_FILE_TYPES = ['认定表', '佐证材料', '申请表', '证明材料', '其他']
+# 文件中心导入文件的本地存储目录（保留原文件名，同名自动加序号）
+FILES_DIR = os.path.join(BASE_DIR, '文件中心文件')
+# 谈心谈话附件存储目录（新增谈话时上传的照片 / 谈话记录文档，命名 YYYYMMDD-姓名-类型-编号）
+TALK_FILES_DIR = os.path.join(BASE_DIR, '谈话文件')
 # 奖学金 / 助学金等次（批量导入校验）
 AID_LEVELS = ('一等', '二等', '三等', '不记等次')
 
@@ -69,14 +75,6 @@ CREATE TABLE IF NOT EXISTS portraits (
   sid TEXT UNIQUE, tags TEXT NOT NULL DEFAULT '[]', updated_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS aid_projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL DEFAULT '', type TEXT DEFAULT '',
-  term TEXT DEFAULT '', amount TEXT DEFAULT '', quota INTEGER DEFAULT 0,
-  deadline TEXT DEFAULT '', status TEXT DEFAULT '进行中', note TEXT DEFAULT '',
-  created_at INTEGER, updated_at INTEGER
-);
-
 CREATE TABLE IF NOT EXISTS hardship_records (
   id TEXT PRIMARY KEY,
   sid TEXT NOT NULL DEFAULT '', year TEXT DEFAULT '',
@@ -100,16 +98,6 @@ CREATE TABLE IF NOT EXISTS grants (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_grants_xh_name_year ON grants(xh, name, year) WHERE xh != '' AND name != '' AND year != '';
 
-CREATE TABLE IF NOT EXISTS aid_records (
-  id TEXT PRIMARY KEY,
-  pid TEXT DEFAULT '', sid TEXT DEFAULT '',
-  apply_date TEXT DEFAULT '', material TEXT DEFAULT '',
-  review TEXT DEFAULT '待评审', amount TEXT DEFAULT '',
-  status TEXT DEFAULT '待发放', note TEXT DEFAULT '',
-  created_at INTEGER, updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_aid_records_pid_sid ON aid_records(pid, sid) WHERE pid != '' AND sid != '';
-
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT
 );
@@ -124,6 +112,8 @@ DEFAULT_SETTINGS = {
     'talker': '',
     'topicDict': ['入学适应', '学业指导', '心理健康', '情感人际', '家庭经济', '职业规划', '纪律安全', '党团发展', '资助帮扶', '其他'],
     'catDict': ['谈心谈话', '通知文件', '活动材料', '评奖评优', '资助材料', '党团材料', '安全材料', '心理材料', '其他'],
+    # v2.6：重点关注上传材料文件类型字典（设置-字典管理可编辑）
+    'focusTypes': ['证明材料', '谈话记录', '家访记录', '一生一策', '其他'],
 }
 
 # 学生字段映射：API(camelCase) <-> 数据库列(snake_case)
@@ -155,25 +145,44 @@ def _uid():
 
 
 def _norm_concerns(raw):
-    """把 concerns 规范化为 [{t,l}]（兼容旧数据：字符串 -> {t, 默认级别}）。
+    """把 concerns 规范化为 [{t,l}]。
 
-    v2.1：心理类级别为 严重/一般 两级，并兼容旧值 红/橙/黄；其余类型为 红/橙/黄。
+    v2.5：允许同一学生同时存在多类重点关注（如 经济·黄 + 心理·一般）；
+          同一类型只保留一个级别（后值覆盖，禁止如 心理·严重 + 心理·一般 并存）。
+    兼容旧数据：字符串（含“类型:级别”或仅类型）→ 解析；心理类五级（红/橙/黄/严重/一般），其余三级。
     """
-    out = []
-    if not isinstance(raw, list):
-        return out
-    for c in raw:
-        if isinstance(c, dict) and c.get('t'):
-            t = str(c['t'])
-            lv = c.get('l')
-            if t == '心理':
-                ok = lv in ('严重', '一般', '红', '橙', '黄')  # 后三者兼容存量旧数据
-                out.append({'t': t, 'l': lv if ok else '一般'})
+    out = {}
+
+    def put(t, lv):
+        t = str(t or '').strip()
+        if not t:
+            return
+        if t == '心理':
+            lv = lv if lv in ('严重', '一般', '红', '橙', '黄') else '一般'
+        else:
+            lv = lv if lv in ('红', '橙', '黄') else '黄'
+        out[t] = {'t': t, 'l': lv}
+
+    def parse_str(text):
+        for seg in re.split(r'[;；,，、\n]', text or ''):
+            seg = seg.strip()
+            if not seg:
+                continue
+            m = re.match(r'^(心理|学业|思政|经济|家庭|其他)\s*[:：\-—]?\s*(严重|一般|红|橙|黄)?', seg)
+            if m:
+                put(m.group(1), m.group(2))
             else:
-                out.append({'t': t, 'l': lv if lv in ('红', '橙', '黄') else '黄'})
-        elif isinstance(c, str) and c.strip():
-            out.append({'t': c.strip(), 'l': '黄'})
-    return out
+                put(seg, '黄')
+
+    if isinstance(raw, list):
+        for c in raw:
+            if isinstance(c, dict) and c.get('t'):
+                put(c['t'], c.get('l'))
+            elif isinstance(c, str) and c.strip():
+                parse_str(c)
+    elif isinstance(raw, str) and raw.strip():
+        parse_str(raw)
+    return list(out.values())
 
 
 class Database:
@@ -274,24 +283,6 @@ class Database:
         }
 
     # ---------- 奖助：序列化 ----------
-    def _aid_project_from_db(self, row):
-        return {
-            'id': row.get('id'), 'name': row.get('name') or '', 'type': row.get('type') or '',
-            'term': row.get('term') or '', 'amount': row.get('amount') or '',
-            'quota': row.get('quota') or 0, 'deadline': row.get('deadline') or '',
-            'status': row.get('status') or '进行中', 'note': row.get('note') or '',
-            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
-        }
-
-    def _aid_project_to_db(self, p):
-        return {
-            'id': p.get('id'), 'name': p.get('name') or '', 'type': p.get('type') or '',
-            'term': p.get('term') or '', 'amount': p.get('amount') or '',
-            'quota': p.get('quota') or 0, 'deadline': p.get('deadline') or '',
-            'status': p.get('status') or '进行中', 'note': p.get('note') or '',
-            'created_at': p.get('createdAt'), 'updated_at': p.get('updatedAt'),
-        }
-
     def _hardship_from_db(self, row):
         return {
             'id': row.get('id'), 'sid': row.get('sid') or '', 'year': row.get('year') or '',
@@ -306,24 +297,6 @@ class Database:
             'level': h.get('level') or '', 'review': h.get('review') or '',
             'status': h.get('status') or '认定中', 'note': h.get('note') or '',
             'updated_at': h.get('updatedAt'),
-        }
-
-    def _aid_record_from_db(self, row):
-        return {
-            'id': row.get('id'), 'pid': row.get('pid') or '', 'sid': row.get('sid') or '',
-            'applyDate': row.get('apply_date') or '', 'material': row.get('material') or '',
-            'review': row.get('review') or '待评审', 'amount': row.get('amount') or '',
-            'status': row.get('status') or '待发放', 'note': row.get('note') or '',
-            'createdAt': row.get('created_at'), 'updatedAt': row.get('updated_at'),
-        }
-
-    def _aid_record_to_db(self, r):
-        return {
-            'id': r.get('id'), 'pid': r.get('pid') or '', 'sid': r.get('sid') or '',
-            'apply_date': r.get('applyDate') or '', 'material': r.get('material') or '',
-            'review': r.get('review') or '待评审', 'amount': r.get('amount') or '',
-            'status': r.get('status') or '待发放', 'note': r.get('note') or '',
-            'created_at': r.get('createdAt'), 'updated_at': r.get('updatedAt'),
         }
 
     # ---------- 读取 ----------
@@ -487,6 +460,131 @@ class Database:
         self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
         return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0])
 
+    def save_file_import(self, content, orig_name, size_str, date=None, category='', tags=None, note=''):
+        """文件中心导入：把文件实体写入 FILES_DIR（保留原文件名，同名自动加序号），并登记文件索引。
+
+        返回 (file, None) 或 (None, 错误信息)。
+        """
+        os.makedirs(FILES_DIR, exist_ok=True)
+        fname = self._safe_seg(os.path.basename(orig_name or '') or '未命名文件')
+        if not os.path.splitext(fname)[1]:
+            fname += ''
+        base, ext = os.path.splitext(fname)
+        n = 2
+        while os.path.exists(os.path.join(FILES_DIR, fname)):
+            fname = '%s-%d%s' % (base, n, ext)
+            n += 1
+        with open(os.path.join(FILES_DIR, fname), 'wb') as fh:
+            fh.write(content)
+        f = {
+            'id': _uid(), 'name': fname, 'category': category or '',
+            'tags': tags or [], 'date': date or _today(), 'size': size_str or '',
+            'note': note or '', 'source': '文件导入', 'relPath': fname,
+            'sid': '', 'createdAt': _now(), 'updatedAt': _now(),
+        }
+        vals = self._file_to_db(f)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0]), None
+
+    def file_abs_path(self, fid):
+        """解析文件索引对应的本地实体文件绝对路径。
+
+        v2.6：支持所有受管本地目录（文件中心文件 / 重点关注文件 / 奖助文件 / 谈话文件），
+        仅允许这些目录内的文件；无实体（仅注册索引）返回 (None, 提示)。
+        返回 (abs_path, None) 或 (None, 错误信息)。
+        """
+        rows = self._q('files', 'WHERE id=?', (fid,))
+        if not rows:
+            return None, '文件索引不存在'
+        f = self._file_from_db(rows[0])
+        rel = f.get('relPath') or ''
+        if not rel:
+            return None, '该索引未关联本地文件（仅注册了元数据）'
+        name = os.path.basename(rel)
+        dirs = [FILES_DIR, FOCUS_DIR, AID_DIR, TALK_FILES_DIR]
+        for d in dirs:
+            try:
+                if os.path.dirname(os.path.abspath(os.path.join(d, name))) != os.path.abspath(d):
+                    continue
+            except Exception:
+                continue
+            absp = os.path.abspath(os.path.join(d, name))
+            if os.path.exists(absp):
+                return absp, None
+        return None, '本地文件不存在（可能已被移动或删除）'
+
+    def save_talk_upload(self, sid, sname, ftype, content, orig_name, size_str, date=None):
+        """保存谈话附件（照片 / 谈话记录文档）：写入 TALK_FILES_DIR。
+
+        命名规则：YYYYMMDD-学生姓名-谈话记录/照片-文件编号.ext
+        文件编号用于当日对同一学生上传多次文件（1、2、3…递增）。
+        返回 (file, None) 或 (None, 错误信息)。
+        """
+        os.makedirs(TALK_FILES_DIR, exist_ok=True)
+        date = date or _today()
+        ymd = date.replace('-', '')
+        ext = os.path.splitext(orig_name or '')[-1]
+        if not re.match(r'^[.][A-Za-z0-9]{1,10}$', ext):
+            ext = ''
+        ftype = self._safe_seg(ftype or '谈话记录') or '谈话记录'
+        base = '%s-%s-%s' % (self._safe_seg(ymd), self._safe_seg(sname), ftype)
+        # 当日同生同类型已有最大编号
+        max_n = 0
+        try:
+            for fn in os.listdir(TALK_FILES_DIR):
+                if fn.startswith(base + '-') or fn.startswith(base + '.'):
+                    body = fn
+                    if body.startswith(base + '-'):
+                        num = body[len(base) + 1:].split('.')[0]
+                    elif body.startswith(base + '.'):
+                        num = '1'
+                    else:
+                        num = '0'
+                    if num.isdigit():
+                        max_n = max(max_n, int(num))
+        except OSError:
+            pass
+        n = max_n + 1
+        fname = '%s-%d%s' % (base, n, ext)
+        n2 = 2
+        while os.path.exists(os.path.join(TALK_FILES_DIR, fname)):
+            fname = '%s-%d%s' % (base, max_n + n2, ext)
+            n2 += 1
+        with open(os.path.join(TALK_FILES_DIR, fname), 'wb') as fh:
+            fh.write(content)
+        f = {
+            'id': _uid(), 'name': fname, 'category': '谈话附件',
+            'tags': [ftype], 'date': date, 'size': size_str or '',
+            'note': '', 'source': '谈话附件', 'relPath': fname,
+            'sid': sid, 'createdAt': _now(), 'updatedAt': _now(),
+        }
+        vals = self._file_to_db(f)
+        cols = ', '.join(vals.keys())
+        ph = ', '.join(['?'] * len(vals))
+        self._exec('INSERT INTO files (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
+        return self._file_from_db(self._q('files', 'WHERE id=?', (f['id'],))[0]), None
+
+    def open_file_in_finder(self, fid):
+        """在访达中定位并选中文件实体（仅本机）。返回 (ok, 提示/None)。"""
+        absp, err = self.file_abs_path(fid)
+        if err:
+            return False, err
+        try:
+            import subprocess
+            subprocess.Popen(['open', '-R', absp])
+            return True, None
+        except Exception as e:  # noqa
+            return False, '打开文件所在地失败：' + str(e)
+
+    def close(self):
+        """关闭当前数据库连接（切换库 / 导入 DATABASE 备份时重建用）。"""
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
     def _safe_seg(self, s):
         """清洗文件名片段，避免路径分隔符与特殊字符。"""
         s = re.sub(r'[/\\:*?"<>|\r\n\t]', '_', str(s or '').strip())
@@ -543,31 +641,6 @@ class Database:
             pass
 
     # ---------- 奖助管理 ----------
-    def add_aid_project(self, p):
-        p = dict(p)
-        p.setdefault('id', _uid())
-        p.setdefault('createdAt', _now())
-        p.setdefault('updatedAt', _now())
-        vals = self._aid_project_to_db(p)
-        cols = ', '.join(vals.keys())
-        ph = ', '.join(['?'] * len(vals))
-        self._exec('INSERT INTO aid_projects (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
-        return self._aid_project_from_db(self._q('aid_projects', 'WHERE id=?', (p['id'],))[0])
-
-    def update_aid_project(self, p):
-        p = dict(p)
-        p['updatedAt'] = _now()
-        vals = self._aid_project_to_db(p)
-        vals.pop('id', None); vals.pop('created_at', None)
-        sets = ', '.join('%s=?' % k for k in vals)
-        self._exec('UPDATE aid_projects SET %s WHERE id=?' % sets, list(vals.values()) + [p['id']])
-        return self._aid_project_from_db(self._q('aid_projects', 'WHERE id=?', (p['id'],))[0])
-
-    def delete_aid_project(self, pid):
-        self._exec('DELETE FROM aid_records WHERE pid=?', (pid,))
-        self._exec('DELETE FROM files WHERE pid=?', (pid,))
-        self._exec('DELETE FROM aid_projects WHERE id=?', (pid,))
-
     def add_hardship(self, h):
         """困难认定档案：每生每学年一条，已存在则更新。"""
         h = dict(h)
@@ -594,29 +667,6 @@ class Database:
 
     def delete_hardship(self, hid):
         self._exec('DELETE FROM hardship_records WHERE id=?', (hid,))
-
-    def add_aid_record(self, r):
-        r = dict(r)
-        r.setdefault('id', _uid())
-        r.setdefault('createdAt', _now())
-        r.setdefault('updatedAt', _now())
-        vals = self._aid_record_to_db(r)
-        cols = ', '.join(vals.keys())
-        ph = ', '.join(['?'] * len(vals))
-        self._exec('INSERT INTO aid_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
-        return self._aid_record_from_db(self._q('aid_records', 'WHERE id=?', (r['id'],))[0])
-
-    def update_aid_record(self, r):
-        r = dict(r)
-        r['updatedAt'] = _now()
-        vals = self._aid_record_to_db(r)
-        vals.pop('id', None); vals.pop('created_at', None)
-        sets = ', '.join('%s=?' % k for k in vals)
-        self._exec('UPDATE aid_records SET %s WHERE id=?' % sets, list(vals.values()) + [r['id']])
-        return self._aid_record_from_db(self._q('aid_records', 'WHERE id=?', (r['id'],))[0])
-
-    def delete_aid_record(self, rid):
-        self._exec('DELETE FROM aid_records WHERE id=?', (rid,))
 
     def import_hardship(self, records):
         """批量导入困难认定名单。records: [{xh, level, review, year}] → {imported, skips}。"""
@@ -900,12 +950,11 @@ class Database:
 
     # ---------- 导入旧备份 / 示例 / 清空 ----------
     def import_backup(self, d):
-        """导入备份 JSON（含 students/talks/files/portraits/settings/meta，兼容旧版奖助项目/申报记录与新版奖学金/助学金）。"""
+        """导入备份 JSON（含 students/talks/files/portraits/settings/meta/hardship_records/scholarships/grants）。"""
         now = _now()
         # 清空后导入，保证与备份一致
         for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta',
-                      'scholarships', 'grants', 'hardship_records',
-                      'aid_projects', 'aid_records'):
+                      'scholarships', 'grants', 'hardship_records'):
             self._exec('DELETE FROM %s' % table)
         for s in (d.get('students') or []):
             s = dict(s)
@@ -947,7 +996,7 @@ class Database:
                            (r.get('id'), str(r.get('xh') or ''), str(r.get('name') or ''),
                             str(r.get('level') or ''), str(r.get('year') or ''), str(r.get('time') or ''),
                             str(r.get('note') or ''), r.get('createdAt') or now, r.get('updatedAt') or now))
-        # 旧版：困难认定 / 奖助项目 / 申报记录（保留数据兼容）
+        # 旧版：困难认定（保留数据兼容）
         for h in (d.get('hardshipRecords') or []):
             h = dict(h)
             h.setdefault('id', _uid())
@@ -956,24 +1005,6 @@ class Database:
             cols = ', '.join(vals.keys())
             ph = ', '.join(['?'] * len(vals))
             self._exec('INSERT INTO hardship_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
-        for p in (d.get('aidProjects') or []):
-            p = dict(p)
-            p.setdefault('id', _uid())
-            p.setdefault('createdAt', now)
-            p.setdefault('updatedAt', now)
-            vals = self._aid_project_to_db(p)
-            cols = ', '.join(vals.keys())
-            ph = ', '.join(['?'] * len(vals))
-            self._exec('INSERT INTO aid_projects (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
-        for r in (d.get('aidRecords') or []):
-            r = dict(r)
-            r.setdefault('id', _uid())
-            r.setdefault('createdAt', now)
-            r.setdefault('updatedAt', now)
-            vals = self._aid_record_to_db(r)
-            cols = ', '.join(vals.keys())
-            ph = ', '.join(['?'] * len(vals))
-            self._exec('INSERT INTO aid_records (%s) VALUES (%s)' % (cols, ph), list(vals.values()))
         self.save_settings(d.get('settings'))
         meta = d.get('meta') or {}
         for k, v in meta.items():
@@ -1069,6 +1100,5 @@ class Database:
 
     def reset(self):
         for table in ('students', 'talks', 'files', 'portraits', 'settings', 'meta',
-                      'aid_projects', 'hardship_records', 'aid_records',
-                      'scholarships', 'grants'):
+                      'hardship_records', 'scholarships', 'grants'):
             self._exec('DELETE FROM %s' % table)
