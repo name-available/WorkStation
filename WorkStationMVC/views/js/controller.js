@@ -134,6 +134,10 @@ function saveTalk(id){
   obj.content=document.getElementById('tContent').value.trim();
   obj.followUp=document.getElementById('tFollow').value.trim();
   obj.followDate=document.getElementById('tFollowDate').value;
+  /* v3.0 状态规则：未填写跟进事项 → 无跟进事项（未完成）；新增默认待跟进；编辑时清空事项则重置为未完成，已完成状态保留 */
+  if(!obj.followUp){ obj.done=false; }
+  else if(!id){ obj.done=false; }
+  else { obj.done=!!obj.done; }
   obj.updatedAt=Date.now();
   (async function(){
     try{
@@ -147,7 +151,11 @@ function viewTalk(id){
   var t=Model.talks().find(function(x){ return x.id===id; }); if(!t) return;
   var s=t.sid ? Model.students().find(function(x){ return x.id===t.sid; }) : null;
   var li=levelInfo(t.level||'g');
-  var follow = t.followDate ? (t.done ? '已完成' : ('待回访 '+ymd(t.followDate))) : '未设置';
+  var st=talkFollowState(t);
+  var followDateLine='';
+  if(st==='done' && t.followDate) followDateLine='<div style="font-size:13px;color:var(--muted);margin-top:4px">完成时间：'+ymd(t.followDate)+'</div>';
+  else if(st==='wait' && t.followDate) followDateLine='<div style="font-size:13px;color:var(--muted);margin-top:4px">计划跟进：'+ymd(t.followDate)+'</div>';
+  var followBtn=st==='wait' ? '<button class="btn btn-p" onclick="openFollowModal(\''+id+'\')">跟进完成</button>' : '';
   openModal('<h2>谈话记录详情</h2>'
     +'<div class="form-grid" style="margin-top:12px">'
     +'<div class="form-item"><label>谈话时间</label><div>'+ymd(t.time)+'</div></div>'
@@ -159,9 +167,9 @@ function viewTalk(id){
     +'</div>'
     +'<div class="form-item" style="margin-top:12px"><label>学生特点</label><div style="font-size:14px;color:#3d4c5e">'+esc(t.traits||'—')+'</div></div>'
     +'<div class="form-item" style="margin-top:12px"><label>谈话内容</label><div style="font-size:14px;line-height:1.7;color:#3d4c5e;white-space:pre-wrap">'+esc(t.content||'—')+'</div></div>'
-    +'<div class="form-item" style="margin-top:12px"><label>后续跟进</label><div style="font-size:14px;color:#3d4c5e">'+esc(t.followUp||'—')+'</div></div>'
-    +'<div class="form-item" style="margin-top:12px"><label>回访状态</label><div style="font-size:14px;color:#3d4c5e">'+follow+'</div></div>'
-    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button><button class="btn btn-p" onclick="closeModal();openTalkForm(\''+id+'\')">编辑</button></div>');
+    +'<div class="form-item" style="margin-top:12px"><label>后续跟进事项</label><div style="font-size:14px;color:#3d4c5e">'+esc(t.followUp||'—')+'</div></div>'
+    +'<div class="form-item" style="margin-top:12px"><label>跟进状态</label><div>'+talkFollowBadge(t)+followDateLine+'</div></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">关闭</button>'+followBtn+'<button class="btn btn-p" onclick="closeModal();openTalkForm(\''+id+'\')">编辑</button></div>');
 }
 function delTalk(id){
   var t=Model.talks().find(function(x){ return x.id===id; }); if(!t) return;
@@ -173,12 +181,24 @@ function delTalk(id){
     }catch(e){ toast(e.message,'err'); }
   })();
 }
-function markFollowDone(id){
+function openFollowModal(id){
+  var t=Model.talks().find(function(x){ return x.id===id; }); if(!t) return;
+  var s=t.sid ? Model.students().find(function(x){ return x.id===t.sid; }) : null;
+  openModal('<h2>跟进完成登记</h2>'
+    +'<div class="m-sub" style="margin:10px 0">学生：'+(s?esc(s.name)+' · '+esc(s.xh):'—')+'　话题：'+esc(t.topic||'未分类')+'</div>'
+    +'<div class="form-item" style="margin:12px 0"><label>后续跟进事项</label><div style="font-size:14px;color:#3d4c5e;line-height:1.6">'+esc(t.followUp||'—')+'</div></div>'
+    +'<div class="form-item"><label>完成时间</label><input type="date" id="followDoneDate" value="'+todayISO()+'"></div>'
+    +'<div class="m-actions"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="confirmFollowDone(\''+id+'\')">确认完成</button></div>');
+}
+function confirmFollowDone(id){
+  var date=(document.getElementById('followDoneDate').value||'').trim();
+  if(!date){ toast('请选择完成时间','err'); return; }
   (async function(){
     try{
-      await Model.save('POST','/api/talks/'+id+'/done');
+      await Model.save('POST','/api/talks/'+id+'/done',{date:date});
+      closeModal();
       if(curView==='home') RENDERERS.home(); else renderTalksTable();
-      toast('已标记跟进完成');
+      toast('已登记跟进完成');
     }catch(e){ toast(e.message,'err'); }
   })();
 }
@@ -254,7 +274,7 @@ function doExport(kind){
         else if(c.k==='xh') v=s?s.xh:'';
         else if(c.k==='cls') v=s?s.cls:'';
         else if(c.k==='level') v={g:'一般',a:'需关注',r:'重点关注'}[t.level]||'';
-        else if(c.k==='done') v=t.done?'是':'';
+        else if(c.k==='done') v=talkFollowLabel(t);
         else v=t[c.k];
         return q(v);
       }).join(','));
@@ -732,18 +752,20 @@ function clearAllData(){
 }
 
 /* ---------- 学生导入 / 导出 ---------- */
-function confirmStudentImport(){
+function confirmStudentImport(overwrite){
   var list=window.__pendingImport||[];
   var skips=window.__pendingSkips||[];
   if(!list.length){ window.__pendingImport=null; window.__pendingSkips=null; closeModal(); return; }
+  overwrite=!!overwrite;
   (async function(){
     try{
-      var json=await Model.save('POST','/api/import/students',{records:list});
+      var json=await Model.save('POST','/api/import/students',{records:list, overwrite:overwrite});
       window.__pendingImport=null;
       window.__pendingSkips=null;
+      window.__pendingDups=null;
       closeModal(); renderStudentsTable();
       var msg='已导入 '+json.imported+' 名学生';
-      if(json.skips && json.skips.length) msg+='，跳过 '+json.skips.length+' 条（学号重复或空行，已在预览明细中列出）';
+      if(json.skips && json.skips.length) msg+='，跳过 '+json.skips.length+' 条（学号重复或空行，可在预览明细中查看）';
       toast(msg);
     }catch(e){ toast(e.message,'err'); }
   })();
@@ -801,7 +823,8 @@ function showConcernsImportPreview(text){
   }
   var okTypes=['心理','学业','思政','经济'];
   var okLv={'心理':['红','橙','黄','严重','一般'],'学业':['红','橙','黄'],'思政':['红','橙','黄'],'经济':['红','橙','黄']};
-  var records=[], skips=[];
+  var records=[], skips=[], dups=[];
+  var byXh={}; Model.students().forEach(function(s){ if(s.xh) byXh[s.xh]=s; });
   for(var i=1;i<rows.length;i++){
     var r=rows[i];
     var xh=String(r[colMap.xh]==null?'':r[colMap.xh]).trim();
@@ -815,22 +838,39 @@ function showConcernsImportPreview(text){
     else if(okTypes.indexOf(type)===-1) reason='类型无效（'+type+'），应为 心理/学业/思政/经济';
     else if(okLv[type].indexOf(level)===-1) reason='级别无效（'+level+'），'+type+'类应为 '+okLv[type].join('/');
     if(reason){ skips.push({ row:i+1, xh:xh, type:type, level:level, reason:reason }); continue; }
-    records.push({ xh:xh, type:type, level:level, row:i+1 });
+    var stu=byXh[xh];
+    var existing=null;
+    if(stu){
+      var old=(stu.concerns||[]).find(function(c){ return c.t===type; });
+      if(old) existing=old.l;
+    }
+    var rec={ xh:xh, type:type, level:level, row:i+1, existing:existing, dup:existing!==null };
+    if(rec.dup) dups.push(rec);
+    records.push(rec);
   }
   window.__pendingConcerns=records;
   window.__pendingConcernsSkips=skips;
-  var byXh={}; Model.students().forEach(function(s){ if(s.xh) byXh[s.xh]=s.name; });
   var html='<div style="font-size:14px;margin-bottom:10px">解析完成：可导入 <b style="color:var(--green)">'+records.length+'</b> 条';
+  if(dups.length) html+='，其中 <b style="color:var(--amber)">'+dups.length+'</b> 条同类关注已存在（可选择覆盖或跳过）';
   if(skips.length) html+='，跳过 <b style="color:var(--red)">'+skips.length+'</b> 条';
   html+='</div>';
   if(records.length){
-    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:22%"><col style="width:22%"><col style="width:20%"><col style="width:36%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>类型</th><th>级别</th><th>台账学生</th></tr></thead><tbody>';
+    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:20%"><col style="width:18%"><col style="width:16%"><col style="width:24%"><col style="width:22%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>类型</th><th>级别</th><th>台账学生</th><th>覆盖提示</th></tr></thead><tbody>';
     records.slice(0,8).forEach(function(rec){
-      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.type)+'</td><td>'+esc(rec.level)+'</td><td>'+esc(byXh[rec.xh]||'—')+'</td></tr>';
+      var stu=byXh[rec.xh];
+      var tip=rec.dup ? '<span class="tag tag-橙">覆盖：'+esc(rec.type)+'·'+esc(rec.existing)+' → '+esc(rec.level)+'</span>' : (stu?'<span style="color:var(--green)">新增</span>':'<span class="tag tag-红">学号未匹配台账</span>');
+      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.type)+'</td><td>'+esc(rec.level)+'</td><td>'+esc(stu?stu.name:'—')+'</td><td>'+tip+'</td></tr>';
     });
-    if(records.length>8) html+='<tr><td colspan="4" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
+    if(records.length>8) html+='<tr><td colspan="5" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
     html+='</tbody></table>';
-    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="confirmConcernsImport()">确认导入 '+records.length+' 条</button></div>';
+    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button>';
+    if(dups.length){
+      html+='<button class="btn btn-g" onclick="confirmConcernsImport(false)">跳过已有同类（仅导入 '+ (records.length-dups.length) +' 条）</button>'
+        +'<button class="btn btn-p" onclick="confirmConcernsImport(true)">覆盖同类并导入 '+records.length+' 条</button>';
+    } else {
+      html+='<button class="btn btn-p" onclick="confirmConcernsImport(false)">确认导入 '+records.length+' 条</button>';
+    }
+    html+='</div>';
   } else {
     html+='<div class="empty"><div class="big">—</div>没有可导入的关注记录（可能学号/类型/级别为空或格式不正确）。</div>';
   }
@@ -845,18 +885,19 @@ function showConcernsImportPreview(text){
   }
   box.innerHTML=html;
 }
-function confirmConcernsImport(){
+function confirmConcernsImport(overwrite){
   var list=window.__pendingConcerns||[];
   var skips=window.__pendingConcernsSkips||[];
   if(!list.length){ window.__pendingConcerns=null; window.__pendingConcernsSkips=null; closeModal(); return; }
+  overwrite=!!overwrite;
   (async function(){
     try{
-      var json=await Model.save('POST','/api/import/concerns',{records:list});
+      var json=await Model.save('POST','/api/import/concerns',{records:list, overwrite:overwrite});
       window.__pendingConcerns=null;
       window.__pendingConcernsSkips=null;
       closeModal(); RENDERERS.focus();
       var msg='已导入 '+json.imported+' 条重点关注';
-      if(json.skips && json.skips.length) msg+='，跳过 '+json.skips.length+' 条（未匹配学号或类型/级别无效，已在预览明细中列出）';
+      if(json.skips && json.skips.length) msg+='，跳过 '+json.skips.length+' 条（未匹配学号、类型/级别无效或已选择不覆盖同类，可在预览明细中查看）';
       toast(msg);
     }catch(e){ toast(e.message,'err'); }
   })();
@@ -1197,13 +1238,13 @@ function confirmHardshipImport(){
 }
 
 function downloadTalkTemplate(){
-  var head=['谈话时间','地点','姓名','学号','性别','年级','学历','话题','谈话要点记录','备注'].join(',');
-  var sample='2026-09-15,办公室,张三,202600001,男,大一,本科,新生适应,已了解其高中情况与入学适应，建议参加班级活动。';
+  var head=['谈话时间','地点','姓名','学号','话题','谈话要点记录','后续跟进事项','跟进日期','跟进状态'].join(',');
+  var sample='2026-09-15,办公室,张三,202600001,新生适应,已了解其高中情况与入学适应，建议参加班级活动。,一周后回访了解融入情况,2026-09-22,待跟进';
   download('谈话导入模板.csv','\uFEFF'+head+'\n'+sample+'\n','text/csv;charset=utf-8');
-  toast('模板已下载（时间、学号、谈话要点记录为必填；性别/年级/学历可不填）');
+  toast('模板已下载（时间、学号、谈话要点记录为必填；跟进状态限 待跟进/已完成/无跟进事项，均可留空）');
 }
 function openTalkImport(){
-  openModal('<h2>批量导入谈话记录</h2><div class="m-sub">模板列为：谈话时间、地点、姓名、学号、性别、年级、学历、话题、谈话要点记录、备注。<br>必填：谈话时间、学号、谈话要点记录；按学号匹配台账学生，未匹配或缺失必填项的行会跳过并列出明细。导入后谈话列表即时更新，学生画像谈话数同步。</div>'
+  openModal('<h2>批量导入谈话记录</h2><div class="m-sub">模板列为：谈话时间、地点、姓名、学号、话题、谈话要点记录、后续跟进事项、跟进日期、跟进状态。<br>必填：谈话时间、学号、谈话要点记录；后续跟进事项、跟进日期、跟进状态均可留空；按学号匹配台账学生，未匹配或缺失必填项的行会跳过并列出明细。跟进状态限 待跟进 / 已完成 / 无跟进事项。</div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">'
     +'<button class="btn btn-p" onclick="pickTalkCsv()">选择 CSV 文件</button>'
     +'<button class="btn btn-g" onclick="downloadTalkTemplate()">下载导入模板</button>'
@@ -1225,12 +1266,15 @@ function showTalkImportPreview(text){
   var colMap={}, i;
   rows[0].forEach(function(hd,ix){
     var s=String(hd||'').replace(/^\uFEFF/,'').trim();
-    if(s.indexOf('时间')>-1) colMap.time=ix;
+    if(s.indexOf('时间')>-1 && s.indexOf('跟进')<0) colMap.time=ix;
     else if(s.indexOf('地点')>-1) colMap.place=ix;
     else if(s.indexOf('姓名')>-1) colMap.name=ix;
     else if(s.indexOf('学号')>-1) colMap.xh=ix;
     else if(s.indexOf('话题')>-1) colMap.topic=ix;
     else if(s.indexOf('要点')>-1||s.indexOf('内容')>-1) colMap.content=ix;
+    else if(s.indexOf('跟进日期')>-1||s.indexOf('计划日期')>-1) colMap.followDate=ix;
+    else if(s.indexOf('状态')>-1) colMap.status=ix;
+    else if(s.indexOf('跟进事项')>-1||s.indexOf('后续跟进')>-1||s.indexOf('跟进')>-1) colMap.followUp=ix;
   });
   if(colMap.xh===undefined || colMap.time===undefined || colMap.content===undefined){
     box.innerHTML='<div class="empty"><div class="big">—</div>未识别到必填表头（谈话时间 / 学号 / 谈话要点记录）。</div>'; return;
@@ -1244,11 +1288,15 @@ function showTalkImportPreview(text){
     var place=colMap.place!==undefined?String(r[colMap.place]==null?'':r[colMap.place]).trim():'';
     var name=colMap.name!==undefined?String(r[colMap.name]==null?'':r[colMap.name]).trim():'';
     var topic=colMap.topic!==undefined?String(r[colMap.topic]==null?'':r[colMap.topic]).trim():'';
+    var followUp=colMap.followUp!==undefined?String(r[colMap.followUp]==null?'':r[colMap.followUp]).trim():'';
+    var followDate=colMap.followDate!==undefined?String(r[colMap.followDate]==null?'':r[colMap.followDate]).trim():'';
+    var status=colMap.status!==undefined?String(r[colMap.status]==null?'':r[colMap.status]).trim():'';
+    if(status && ['已完成','待跟进','无跟进事项'].indexOf(status)===-1) status='';
     if(!time && !xh && !content){ skips.push({row:i+1, xh:'', name:'', reason:'整行为空'}); continue; }
     if(!time){ skips.push({row:i+1, xh:xh, name:name, reason:'谈话时间为空'}); continue; }
     if(!xh){ skips.push({row:i+1, xh:'', name:name, reason:'学号为空'}); continue; }
     if(!content){ skips.push({row:i+1, xh:xh, name:name, reason:'谈话要点记录为空'}); continue; }
-    records.push({row:i+1, time:time, place:place, name:name, xh:xh, topic:topic, content:content});
+    records.push({row:i+1, time:time, place:place, name:name, xh:xh, topic:topic, content:content, followUp:followUp, followDate:followDate, status:status});
   }
   window.__pendingTalks=records;
   var html='<div style="font-size:14px;margin-bottom:10px">解析完成：可导入 <b style="color:var(--green)">'+records.length+'</b> 条';

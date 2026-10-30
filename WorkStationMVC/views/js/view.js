@@ -49,6 +49,39 @@ function getStudent(id){ return Model.student(id); }
 function studentName(id){ var s=getStudent(id); return s? s.name : '（已删除学生）'; }
 function talkCountOf(sid){ return Model.talks().filter(function(t){ return t.sid===sid; }).length; }
 function portraitTagsOf(sid){ var p=Model.portraits().find(function(x){ return x.sid===sid; }); return p? p.tags : []; }
+/* v3.0：通用表头排序 —— sortTh 生成可点击表头（箭头指示当前排序），toggleSort 切换字段与方向 */
+function sortTh(key, label, sortState, handler, num){
+  var arrow='';
+  if(sortState.key===key) arrow=sortState.dir==='asc'?' ↑':' ↓';
+  return '<th class="sort-th" onclick="'+handler+'(\''+key+'\','+(num?'true':'false')+')">'+label+arrow+'</th>';
+}
+function toggleSort(box, key, num){
+  if(F[box].sort.key===key) F[box].sort.dir=F[box].sort.dir==='asc'?'desc':'asc';
+  else { F[box].sort.key=key; F[box].sort.dir='asc'; }
+}
+function sortRows(list, sortState, accessor, num){
+  var dir=sortState.dir==='asc'?1:-1;
+  list.sort(function(a,b){
+    var va=accessor(a), vb=accessor(b);
+    if(num){ va=Number(va||0); vb=Number(vb||0); if(va!==vb) return (va-vb)*dir; return 0; }
+    va=(va==null?'':String(va)); vb=(vb==null?'':String(vb));
+    if(va===vb) return 0;
+    return va.localeCompare(vb,'zh-CN')*dir;
+  });
+}
+/* v3.0：跟进状态 —— none 无跟进事项 / wait 待跟进 / done 已完成 */
+function talkFollowState(t){
+  if(t.done) return 'done';
+  if((t.followUp||'').trim()) return 'wait';
+  return 'none';
+}
+function talkFollowLabel(t){ return {'done':'已完成','wait':'待跟进','none':'无跟进事项'}[talkFollowState(t)]; }
+function talkFollowBadge(t){
+  var st=talkFollowState(t);
+  if(st==='done') return '<span class="badge badge-g">已完成</span>';
+  if(st==='wait') return '<span class="badge badge-a">待跟进</span>';
+  return '<span class="badge badge-gray">无跟进事项</span>';
+}
 
 /* ---------- 通用交互 ---------- */
 function toast(msg, kind){ var t=document.createElement('div'); t.className='toast '+(kind||'ok'); t.textContent=msg; document.getElementById('toastRoot').appendChild(t); setTimeout(function(){ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); },350); },2600); }
@@ -123,7 +156,7 @@ var VIEW_SUBS = {
   talks:'谈话记录、计划与跟进', portrait:'一人一档全景视图', files:'本地文件索引（仅文件名检索）', settings:'密码、字典、备份与数据'
 };
 var curView='home';
-var F = { students:{q:'',cls:'',gender:'',zzmm:'',concern:''}, focus:{q:'',type:'',level:'',cls:''},
+var F = { students:{q:'',cls:'',gender:'',zzmm:'',concern:'', sort:{key:'cls',dir:'asc'}}, focus:{q:'',type:'',level:'',cls:'', sort:{key:'level',dir:'asc'}},
   aid:{tab:'hardship', pQ:'',pType:'',pTerm:'', hYear:'',hLevel:'',hQ:'', rPid:'',rCls:'',rLevel:'',rEco:'',rQ:'', sQ:'',sLevel:'',sYear:'', gQ:'',gLevel:'',gYear:''},
   talks:{q:'',topic:'',level:'',month:''}, files:{q:'',cat:'',tag:''}, portrait:{sid:''} };
 var NAV_ICONS = {
@@ -149,7 +182,7 @@ var STUDENT_EXPORT_FIELDS = [
 var TALK_EXPORT_FIELDS = [
   {k:'time',l:'谈话时间'},{k:'name',l:'姓名'},{k:'xh',l:'学号'},{k:'cls',l:'班级'},
   {k:'talker',l:'谈话人'},{k:'place',l:'地点'},{k:'topic',l:'话题'},{k:'level',l:'关注等级'},
-  {k:'traits',l:'学生特点'},{k:'content',l:'谈话内容'},{k:'followUp',l:'跟进事项'},{k:'followDate',l:'跟进日期'},{k:'done',l:'完成状态'}
+  {k:'traits',l:'学生特点'},{k:'content',l:'谈话内容'},{k:'followUp',l:'后续跟进事项'},{k:'followDate',l:'跟进日期'},{k:'done',l:'跟进状态'}
 ];
 function renderNav(){
   var html='', k;
@@ -245,7 +278,7 @@ RENDERERS.home = function(){
       left+='<div class="tl-date">'+ymd(t.followDate)+'</div><div class="tl-axis"><span class="dot a"></span></div>'
         +'<div class="tl-body"><div class="t-topic">'+esc(studentName(t.sid))+' · '+esc(t.topic||'未分类')+'</div>'
         +'<div class="t-meta">'+esc(t.followUp||'回访跟进')+'</div>'
-        +'<button class="btn btn-g btn-xs" onclick="markFollowDone(\''+t.id+'\')">标记已完成</button></div>';
+        +'<button class="btn btn-g btn-xs" onclick="openFollowModal(\''+t.id+'\')">跟进完成</button></div>';
     });
     left+='</div>';
   } else left+=emptyBox('当前没有到期的回访跟进。');
@@ -321,6 +354,7 @@ function studentsApply(){
   F.students.concern=document.getElementById('stuConcern').value;
   renderStudentsTable();
 }
+function studentsToggleSort(key, num){ toggleSort('students', key, num); renderStudentsTable(); }
 function renderStudentsTable(){
   var list=Model.students().slice(), q=F.students.q.toLowerCase(), i;
   if(q){ list=list.filter(function(s){ return (s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1; }); }
@@ -333,9 +367,12 @@ function renderStudentsTable(){
       return ci>-1 ? (c.t===F.students.concern.slice(0,ci) && c.l===F.students.concern.slice(ci+1)) : c.t===F.students.concern;
     }); });
   }
-  list.sort(function(a,b){ return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
+  var sk=F.students.sort;
+  if(sk.key==='xh') sortRows(list, sk, function(s){ return s.xh||''; }, false);
+  else if(sk.key==='talks') sortRows(list, sk, function(s){ return talkCountOf(s.id); }, true);
+  else sortRows(list, sk, function(s){ return s.cls||''; }, false);
   var html='<div class="table-wrap"><table><colgroup><col style="width:11%"><col style="width:8%"><col style="width:6%"><col style="width:11%"><col style="width:10%"><col style="width:11%"><col style="width:17%"><col style="width:8%"><col style="width:18%"></colgroup>'
-    +'<thead><tr><th>学号</th><th>姓名</th><th>性别</th><th>班级</th><th>政治面貌</th><th>籍贯</th><th>重点关注</th><th>谈话数</th><th>操作</th></tr></thead><tbody>';
+    +'<thead><tr>'+sortTh('xh','学号',F.students.sort,'studentsToggleSort',false)+'<th>姓名</th><th>性别</th>'+sortTh('cls','班级',F.students.sort,'studentsToggleSort',false)+'<th>政治面貌</th><th>籍贯</th><th>重点关注</th>'+sortTh('talks','谈话数',F.students.sort,'studentsToggleSort',true)+'<th>操作</th></tr></thead><tbody>';
   if(!list.length){ html+='<tr><td colspan="9">'+emptyBox('没有匹配的学生。可点击右上角“导入学生”批量导入，或“新增学生”手动添加。')+'</td></tr>'; }
   list.forEach(function(s){
     var tags=(s.concerns||[]).length ? (s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('') : '<span style="color:var(--muted)">—</span>';
@@ -343,7 +380,7 @@ function renderStudentsTable(){
       +'<td><div class="ops"><button onclick="goPortrait(\''+s.id+'\')">画像</button><button onclick="openStudentForm(\''+s.id+'\')">编辑</button><button onclick="delStudent(\''+s.id+'\')">删除</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名学生（共 '+Model.students().length+' 名）</div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名学生（共 '+Model.students().length+' 名）。点击「学号 / 班级 / 谈话数」表头可切换升 / 降序。</div>';
   document.getElementById('studentsBox').innerHTML=html;
 }
 function openStudentForm(id){
@@ -405,8 +442,12 @@ RENDERERS.focus = function(){
   list.forEach(function(s){ (s.concerns||[]).forEach(function(c){ if(cnt[c.t]&&cnt[c.t][c.l]!==undefined) cnt[c.t][c.l]++; }); });
   var html='<div class="focus-stats">';
   CONCERN_TYPES.forEach(function(t){
-    html+='<div class="focus-stat"><div class="k">'+t+'</div><div class="v">'
-      +levelsOf(t).map(function(l){ return '<span class="fc '+l+'">'+l+' '+cnt[t][l]+'</span>'; }).join('')
+    var activeType=F.focus.type===t;
+    html+='<div class="focus-stat'+(activeType?' fs-active':'')+'"><div class="k">'+t+'</div><div class="v">'
+      +levelsOf(t).map(function(l){
+        var active=(activeType && F.focus.level===l);
+        return '<span class="fc '+l+(active?' fc-on':'')+'" title="点击筛选：'+t+'·'+l+'" onclick="focusQuickFilter(\''+t+'\',\''+l+'\')">'+l+' '+cnt[t][l]+'</span>';
+      }).join('')
       +'</div></div>';
   });
   html+='</div>';
@@ -430,22 +471,45 @@ function focusApply(){
   F.focus.cls=document.getElementById('fcCls').value;
   renderFocusTable();
 }
+/* v3.0：展板级别数字点击快速筛选；再次点击同一组合取消筛选 */
+function focusQuickFilter(t, l){
+  if(F.focus.type===t && F.focus.level===l){ F.focus.type=''; F.focus.level=''; }
+  else { F.focus.type=t; F.focus.level=l; }
+  renderFocusTable();
+}
+function focusToggleSort(key, num){ toggleSort('focus', key, num); renderFocusTable(); }
 function renderFocusTable(){
   var list=focusStudents().slice(), q=F.focus.q.toLowerCase();
   if(q) list=list.filter(function(s){ return (s.name||'').toLowerCase().indexOf(q)>-1 || (s.xh||'').indexOf(q)>-1; });
-  if(F.focus.type) list=list.filter(function(s){ return (s.concerns||[]).some(function(c){ return c.t===F.focus.type; }); });
-  if(F.focus.level) list=list.filter(function(s){ return (s.concerns||[]).some(function(c){ return c.l===F.focus.level; }); });
+  list=list.filter(function(s){
+    var cs=s.concerns||[];
+    if(F.focus.type && F.focus.level){
+      return cs.some(function(c){ return c.t===F.focus.type && c.l===F.focus.level; });
+    }
+    if(F.focus.type) return cs.some(function(c){ return c.t===F.focus.type; });
+    if(F.focus.level) return cs.some(function(c){ return c.l===F.focus.level; });
+    return true;
+  });
   if(F.focus.cls) list=list.filter(function(s){ return s.cls===F.focus.cls; });
-  list.sort(function(a,b){ var ra=focusMaxLevel(a), rb=focusMaxLevel(b); if(ra!==rb) return ra-rb; return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
-  var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:12%"><col style="width:26%"><col style="width:10%"><col style="width:32%"></colgroup>'
-    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>重点关注</th><th>材料数</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length) html+='<tr><td colspan="6">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注，或使用「批量导入重点关注」按学号导入。')+'</td></tr>';  list.forEach(function(s){
+  var sk=F.focus.sort;
+  if(sk.key==='talks'){
+    sortRows(list, sk, function(s){ return talkCountOf(s.id); }, true);
+  } else if(sk.key==='files'){
+    sortRows(list, sk, function(s){ return portraitFilesOf(s.id).length; }, true);
+  } else {
+    /* 默认：关注级别 → 班级 → 学号 */
+    list.sort(function(a,b){ var ra=focusMaxLevel(a), rb=focusMaxLevel(b); if(ra!==rb) return ra-rb; return (a.cls||'').localeCompare(b.cls||'') || (a.xh||'').localeCompare(b.xh||''); });
+  }
+  var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:11%"><col style="width:11%"><col style="width:23%"><col style="width:8%"><col style="width:8%"><col style="width:30%"></colgroup>'
+    +'<thead><tr><th>姓名</th><th>学号</th><th>班级</th><th>重点关注</th>'+sortTh('talks','谈话次数',F.focus.sort,'focusToggleSort',true)+sortTh('files','材料数',F.focus.sort,'focusToggleSort',true)+'<th>操作</th></tr></thead><tbody>';
+  if(!list.length) html+='<tr><td colspan="7">'+emptyBox('当前没有标记重点关注的学生。可在本板块为学生设置 心理（红 / 橙 / 黄 / 严重 / 一般）、学业 / 思政 / 经济（红 / 橙 / 黄）四类关注，或使用「批量导入重点关注」按学号导入。')+'</td></tr>';
+  list.forEach(function(s){
     var tags=(s.concerns||[]).map(function(c){ return '<span class="tag '+concernTagClass(c)+'">'+esc(concernLabel(c))+'</span>'; }).join('');
-    html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+portraitFilesOf(s.id).length+'</td>'
+    html+='<tr class="'+(F.focus.sid===s.id?' row-sel':'')+'"><td style="font-weight:600">'+esc(s.name)+'</td><td>'+esc(s.xh||'—')+'</td><td>'+esc(s.cls||'—')+'</td><td>'+tags+'</td><td>'+talkCountOf(s.id)+'</td><td>'+portraitFilesOf(s.id).length+'</td>'
       +'<td><div class="ops"><button onclick="openFocusAdjustModal(\''+s.id+'\')">调整</button><button onclick="openFocusUploadModal(\''+s.id+'\')">上传</button><button onclick="addTalkForStudent(\''+s.id+'\')">新增谈心谈话</button><button onclick="goPortrait(\''+s.id+'\')">查看画像</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名重点关注学生。每行「调整」在弹窗中修改关注级别；「上传」在弹窗中上传证明材料 / 谈话记录 / 家访记录 / 一生一策等文件（类型可在设置-字典管理维护）；「新增谈心谈话」跳转并预填该生；「查看画像」打开该生画像。</div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 名重点关注学生。点击顶部展板的级别数字可快速筛选该类型·级别学生（再次点击取消）；点击「谈话次数 / 材料数」表头可排序。每行「调整」在弹窗中修改关注级别；「上传」在弹窗中上传证明材料 / 谈话记录 / 家访记录 / 一生一策等文件；「新增谈心谈话」跳转并预填该生；「查看画像」打开该生画像。</div>';
   document.getElementById('focusBox').innerHTML=html;
 }
 function selectFocusStudent(sid){
@@ -618,21 +682,26 @@ function renderTalksTable(){
   if(F.talks.level) list=list.filter(function(t){ return (t.level||'g')===F.talks.level; });
   if(F.talks.month) list=list.filter(function(t){ return (t.time||'').slice(0,7)===F.talks.month; });
   list.sort(function(a,b){ return (b.time||'')<(a.time||'')?-1:1; });
-  var html='<div class="table-wrap"><table><colgroup><col style="width:9%"><col style="width:12%"><col style="width:8%"><col style="width:10%"><col style="width:11%"><col style="width:8%"><col style="width:20%"><col style="width:14%"><col style="width:8%"></colgroup>'
-    +'<thead><tr><th>谈话时间</th><th>学生</th><th>谈话人</th><th>地点</th><th>话题</th><th>等级</th><th>谈话内容摘要</th><th>跟进</th><th>操作</th></tr></thead><tbody>';
-  if(!list.length){ html+='<tr><td colspan="9">'+emptyBox('没有匹配的谈话记录。点击右上角“新增谈话记录”开始记录。')+'</td></tr>'; }
+  var html='<div class="table-wrap"><table><colgroup><col style="width:8.5%"><col style="width:11%"><col style="width:8.5%"><col style="width:9%"><col style="width:10%"><col style="width:7%"><col style="width:17%"><col style="width:15%"><col style="width:8.5%"><col style="width:15.5%"></colgroup>'
+    +'<thead><tr><th>谈话时间</th><th>学生</th><th>谈话人</th><th>地点</th><th>话题</th><th>等级</th><th>谈话内容摘要</th><th>后续跟进事项</th><th>跟进状态</th><th>操作</th></tr></thead><tbody>';
+  if(!list.length){ html+='<tr><td colspan="10">'+emptyBox('没有匹配的谈话记录。点击右上角“新增谈话记录”开始记录。')+'</td></tr>'; }
   list.forEach(function(t){
     var s=getStudent(t.sid);
     var li=levelInfo(t.level||'g');
     var stu=s? (esc(s.name)+' <span style="color:var(--muted);font-size:12px">'+esc(s.xh)+'</span>') : '（已删除学生）';
-    var follow = t.followDate ? (t.done ? '<span class="badge badge-g">已完成</span>' : (t.followDate<=todayISO()? '<span class="badge badge-r">待回访 '+ymd(t.followDate)+'</span>' : '<span class="badge badge-gray">'+ymd(t.followDate)+'</span>')) : '—';
+    var st=talkFollowState(t);
+    var followText=(t.followUp||'').trim() ? esc(String(t.followUp).replace(/\n/g,' ').slice(0,34))+((t.followUp||'').length>34?'…':'') : '<span style="color:var(--muted)">—</span>';
+    var statusCell=talkFollowBadge(t);
+    if(st==='done' && t.followDate) statusCell+='<div style="font-size:11.5px;color:var(--muted);margin-top:3px">完成于 '+ymd(t.followDate)+'</div>';
+    if(st==='wait' && t.followDate) statusCell+='<div style="font-size:11.5px;color:var(--muted);margin-top:3px">计划 '+ymd(t.followDate)+'</div>';
+    var followBtn=st==='wait' ? '<button onclick="openFollowModal(\''+t.id+'\')">跟进</button>' : '';
     html+='<tr><td>'+ymd(t.time)+'</td><td>'+stu+'</td><td>'+esc(t.talker||'—')+'</td><td>'+esc(t.place||'—')+'</td><td>'+esc(t.topic||'未分类')+'</td><td><span class="badge '+li[2]+'">'+li[0]+'</span></td>'
-      +'<td style="color:var(--muted)">'+esc(String(t.content||'').replace(/\n/g,' ').slice(0,42))+(t.content&&t.content.length>42?'…':'')+'</td>'
-      +'<td>'+follow+'</td>'
-      +'<td><div class="ops"><button onclick="viewTalk(\''+t.id+'\')">查看</button><button onclick="openTalkForm(\''+t.id+'\')">编辑</button><button onclick="delTalk(\''+t.id+'\')">删除</button></div></td></tr>';
+      +'<td style="color:var(--muted)">'+esc(String(t.content||'').replace(/\n/g,' ').slice(0,40))+(t.content&&t.content.length>40?'…':'')+'</td>'
+      +'<td>'+followText+'</td><td>'+statusCell+'</td>'
+      +'<td><div class="ops"><button onclick="viewTalk(\''+t.id+'\')">查看</button><button onclick="openTalkForm(\''+t.id+'\')">编辑</button>'+followBtn+'<button onclick="delTalk(\''+t.id+'\')">删除</button></div></td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条记录（共 '+Model.talks().length+' 条）</div>';
+  html+='<div style="font-size:12px;color:var(--muted);margin-top:8px">共 '+list.length+' 条记录（共 '+Model.talks().length+' 条）。状态说明：无跟进事项（未填写后续跟进事项）、待跟进（已填写事项尚未完成）、已完成（点击「跟进」登记完成时间）。</div>';
   document.getElementById('talksBox').innerHTML=html;
 }
 function openTalkForm(id, presetSid){
@@ -736,6 +805,15 @@ function goPortrait(id){
   F.portrait.sid=id;
   go('portrait');
 }
+function roommateHtml(s){
+  if(!(s.dorm||'').trim()) return '<span style="color:var(--muted);font-size:13px">未填写宿舍信息，暂无同宿舍学生。</span>';
+  var mates=Model.students().filter(function(x){ return x.id!==s.id && (x.dorm||'').trim() && x.dorm===s.dorm; });
+  if(!mates.length) return '<span style="color:var(--muted);font-size:13px">暂无同宿舍学生。</span>';
+  return mates.map(function(m){
+    return '<button type="button" class="mate-chip" onclick="goPortrait(\''+m.id+'\')" title="查看 '+esc(m.name)+' 的画像">'
+      +esc(m.name)+'<span style="color:var(--muted);font-size:12px;margin-left:6px">'+esc(m.cls||'')+' '+(m.xh?esc(m.xh):'')+'</span></button>';
+  }).join('');
+}
 function renderPortrait(sid){
   var s=getStudent(sid); if(!s) return;
   var talks=Model.talks().filter(function(t){ return t.sid===sid; }).sort(function(a,b){ return (b.time||'')<(a.time||'')?-1:1; });
@@ -755,6 +833,8 @@ function renderPortrait(sid){
     +pItem('备注',s.note)
     +'</div>'
     +'<div style="margin-top:14px">'
+    +'<details class="fam" open><summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>宿舍舍友</summary>'
+    +'<div class="p-basic fam-body">'+roommateHtml(s)+'</div></details>'
     +'<details class="fam"><summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>父亲信息</summary>'
     +'<div class="p-basic fam-body">'+pItem('姓名',s.fName)+pItem('联系方式',s.fPhone)+pItem('工作单位',s.fWork)+pItem('职务',s.fPost)+pItem('政治面貌',s.fZzmm)+'</div></details>'
     +'<details class="fam"><summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>母亲信息</summary>'
@@ -798,7 +878,7 @@ function renderPortrait(sid){
           +'<div class="tl-body"><div class="t-topic">'+esc(t.topic||'未分类')+' <span class="badge '+li[2]+'">'+li[0]+'</span></div>'
           +'<div class="t-meta">'+esc(t.place||'地点未记')+(t.talker?' · 谈话人 '+esc(t.talker):'')+(t.traits?' · 特点：'+esc(t.traits):'')+'</div>'
           +(t.content?'<div class="t-content">'+esc(t.content)+'</div>':'')
-          +(t.followDate?'<div style="font-size:12.5px;color:var(--muted);margin-top:6px">跟进：'+esc(t.followUp||'回访')+'（'+ymd(t.followDate)+'）'+(t.done?' · 已完成':'')+'</div>':'')
+          +(t.followUp?'<div style="font-size:12.5px;color:var(--muted);margin-top:6px">跟进事项：'+esc(t.followUp)+' · '+talkFollowLabel(t)+(t.done&&t.followDate?'（完成于 '+ymd(t.followDate)+'）':(t.followDate?'（计划 '+ymd(t.followDate)+'）':''))+'</div>':'')
           +'</div>';
       } else if(ev.k==='hardship'){
         var h=ev.h;
@@ -1021,34 +1101,47 @@ function showStudentImportPreview(text){
     box.innerHTML='<div class="empty"><div class="big">—</div>未识别到“学号 / 姓名”表头。请确认首行包含这些字段名（支持 学号/姓名/性别/班级/政治面貌/生源地/宿舍 等）。</div>';
     return;
   }
-  var records=[], skips=[], seen={}, exist={};
+  var records=[], skips=[], dups=[], seen={}, exist={};
   Model.students().forEach(function(s){ if(s.xh) exist[s.xh]=s.name; });
   for(i=1;i<rows.length;i++){
     var r=rows[i], rec={};
     Object.keys(colMap).forEach(function(field){ var ix=colMap[field]; rec[field]=String(r[ix]==null?'':r[ix]).trim(); });
     var xh=rec.xh||'', name=rec.name||'';
     if(!xh && !name){ skips.push({ row:i+1, xh:'', name:'', reason:'姓名与学号均为空' }); continue; }
-    if(xh && exist[xh]){ skips.push({ row:i+1, xh:xh, name:name, reason:'学号已存在（'+exist[xh]+'）' }); continue; }
     if(xh && seen[xh]){ skips.push({ row:i+1, xh:xh, name:name, reason:'文件内学号重复' }); continue; }
     if(xh) seen[xh]=name;
+    if(xh && exist[xh]){
+      rec.row=i+1; rec.dup=true; rec.oldName=exist[xh];
+      dups.push(rec); records.push(rec); continue;
+    }
     rec.row=i+1;
     records.push(rec);
   }
   window.__pendingImport = records;
   window.__pendingSkips = skips;
+  window.__pendingDups = dups;
   var html='<div style="font-size:14px;margin-bottom:10px">解析完成：可导入 <b style="color:var(--green)">'+records.length+'</b> 条';
+  if(dups.length) html+='，其中 <b style="color:var(--amber)">'+dups.length+'</b> 条学号已存在（可选择覆盖或跳过）';
   if(skips.length) html+='，跳过 <b style="color:var(--red)">'+skips.length+'</b> 条';
   html+='</div>';
   if(records.length){
-    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:22%"><col style="width:16%"><col style="width:12%"><col style="width:18%"><col style="width:14%"><col style="width:18%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>姓名</th><th>性别</th><th>班级</th><th>政治面貌</th><th>籍贯</th></tr></thead><tbody>';
+    html+='<table style="table-layout:fixed;width:100%;font-size:13px"><colgroup><col style="width:20%"><col style="width:15%"><col style="width:11%"><col style="width:17%"><col style="width:13%"><col style="width:12%"><col style="width:12%"></colgroup><thead><tr style="background:#f7f9fc"><th style="padding:6px 8px;text-align:left">学号</th><th>姓名</th><th>性别</th><th>班级</th><th>政治面貌</th><th>籍贯</th><th>状态</th></tr></thead><tbody>';
     records.slice(0,8).forEach(function(rec){
-      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.name)+'</td><td>'+esc(rec.gender||'')+'</td><td>'+esc(rec.cls||'')+'</td><td>'+esc(rec.zzmm||'')+'</td><td>'+esc(rec.origin||'')+'</td></tr>';
+      var status=rec.dup ? '<span class="tag tag-橙">将覆盖（原：'+esc(rec.oldName)+'）</span>' : '<span style="color:var(--green)">新增</span>';
+      html+='<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f5">'+esc(rec.xh)+'</td><td>'+esc(rec.name)+'</td><td>'+esc(rec.gender||'')+'</td><td>'+esc(rec.cls||'')+'</td><td>'+esc(rec.zzmm||'')+'</td><td>'+esc(rec.origin||'')+'</td><td>'+status+'</td></tr>';
     });
-    if(records.length>8) html+='<tr><td colspan="6" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
+    if(records.length>8) html+='<tr><td colspan="7" style="padding:6px 8px;color:var(--muted)">… 其余 '+ (records.length-8) +' 条略</td></tr>';
     html+='</tbody></table>';
-    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button><button class="btn btn-p" onclick="confirmStudentImport()">确认导入 '+records.length+' 条</button></div>';
+    html+='<div class="m-actions" style="margin-top:12px"><button class="btn btn-g" onclick="closeModal()">取消</button>';
+    if(dups.length){
+      html+='<button class="btn btn-g" onclick="confirmStudentImport(false)">跳过重复（仅导入 '+ (records.length-dups.length) +' 条新记录）</button>'
+        +'<button class="btn btn-p" onclick="confirmStudentImport(true)">覆盖重复并导入 '+records.length+' 条</button>';
+    } else {
+      html+='<button class="btn btn-p" onclick="confirmStudentImport(false)">确认导入 '+records.length+' 条</button>';
+    }
+    html+='</div>';
   } else {
-    html+='<div class="empty"><div class="big">—</div>没有可导入的新学生（可能全部学号重复或为空）。</div>';
+    html+='<div class="empty"><div class="big">—</div>没有可导入的学生记录（可能学号全部为空或文件内重复）。</div>';
   }
   if(skips.length){
     html+='<div style="font-size:13px;margin-top:14px;color:var(--muted)"><b style="color:var(--red)">跳过明细（导入失败项，请核对后修改重导）：</b></div>'

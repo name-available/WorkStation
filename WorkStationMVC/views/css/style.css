@@ -155,12 +155,17 @@ tbody tr:hover{background:#f6f9fc}
 .focus-stat{background:#fff;border:1px solid var(--border-s);border-radius:var(--radius);padding:14px 16px}
 .focus-stat .k{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:8px}
 .focus-stat .v{display:flex;gap:8px;flex-wrap:wrap}
-.fc{display:inline-block;border-radius:999px;padding:2px 12px;font-size:12.5px;font-weight:600;background:var(--gray-bg);color:var(--gray)}
+.fc{display:inline-block;border-radius:999px;padding:2px 12px;font-size:12.5px;font-weight:600;background:var(--gray-bg);color:var(--gray);cursor:pointer;transition:transform .12s,box-shadow .12s;user-select:none}
+.fc:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(30,60,100,.15)}
 .fc.红{background:var(--red-bg);color:var(--red)}
 .fc.橙{background:var(--amber-bg);color:var(--amber)}
 .fc.黄{background:#f6efd9;color:#a37f1f}
 .fc.严重{background:var(--red-bg);color:var(--red)}
 .fc.一般{background:#f6efd9;color:#a37f1f}
+.fc-on{outline:2px solid var(--primary);outline-offset:1px}
+.focus-stat.fs-active{border-color:var(--primary);box-shadow:0 0 0 2px rgba(42,111,176,.12)}
+.sort-th{cursor:pointer;white-space:nowrap;user-select:none}
+.sort-th:hover{color:var(--primary)}
 .row-sel{background:#f0f6ff !important}
 .row-sel td{border-bottom-color:#dce9f8}
 .focus-detail{margin-top:18px}
@@ -218,6 +223,8 @@ details.fam summary svg{transition:transform .18s ease;flex:none}
 details.fam[open] summary svg{transform:rotate(90deg)}
 details.fam .fam-body{margin-top:6px}
 details.fam summary:hover{color:var(--primary)}
+.mate-chip{display:inline-flex;align-items:center;margin:0 10px 8px 0;padding:5px 12px;border:1px solid var(--border-s);border-radius:999px;background:#f7f9fc;font-size:13px;color:var(--navy);cursor:pointer;transition:all .12s}
+.mate-chip:hover{border-color:var(--primary);color:var(--primary);background:#f0f6ff}
 
 /* ===== 导出配置弹窗 ===== */
 .exp-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 12px;max-height:260px;overflow-y:auto;border:1px solid var(--border-s);border-radius:8px;padding:10px 12px;background:#fbfcfe}

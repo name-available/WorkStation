@@ -446,7 +446,7 @@ def _dispatch(handler, db, method):
 
     # ---- 谈话 ----
     if method == 'POST' and len(parts) >= 4 and parts[1] == 'talks' and parts[3] == 'done':
-        db.mark_follow_done(parts[2])
+        db.mark_follow_done(parts[2], body.get('date') or None)
         _ok(handler, db)
         return
     if method == 'POST' and res == 'talks':
@@ -498,17 +498,18 @@ def _dispatch(handler, db, method):
         _ok(handler, db)
         return
 
-    # ---- 批量导入学生（服务端去重） ----
+    # ---- 批量导入学生（服务端去重；overwrite=True 覆盖重复学号） ----
     if method == 'POST' and res == 'import' and len(parts) >= 3 and parts[2] == 'students':
         records = body.get('records') or []
-        result = db.import_students(records)
+        result = db.import_students(records, overwrite=bool(body.get('overwrite')))
         _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
         return
 
-    # ---- 批量导入重点关注（学号绑定台账 + 类型/级别校验） ----
+    # ---- 批量导入重点关注（学号绑定台账 + 类型/级别校验；overwrite=False 不覆盖已有同类） ----
     if method == 'POST' and res == 'import' and len(parts) >= 3 and parts[2] == 'concerns':
         records = body.get('records') or []
-        result = db.import_concerns(records)
+        overwrite = body.get('overwrite')
+        result = db.import_concerns(records, overwrite=True if overwrite is None else bool(overwrite))
         _ok(handler, db, {'imported': result['imported'], 'skips': result['skips']})
         return
 

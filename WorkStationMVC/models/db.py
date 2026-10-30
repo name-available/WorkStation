@@ -376,8 +376,8 @@ class Database:
     def delete_student(self, sid):
         self._exec('DELETE FROM students WHERE id=?', (sid,))
 
-    def import_students(self, records):
-        """批量导入：学号唯一，重复跳过并返回明细。records 含 row 行号。"""
+    def import_students(self, records, overwrite=False):
+        """批量导入：学号唯一。overwrite=True 时重复学号覆盖已有学生基本信息（保留重点关注标记与创建时间）；否则跳过并返回明细。records 含 row 行号。"""
         out = []
         skips = []
         seen = set()
@@ -391,6 +391,21 @@ class Database:
                 skips.append({'row': row_no, 'xh': '', 'name': '', 'reason': '姓名与学号均为空'})
                 continue
             if xh and xh in exist:
+                if overwrite:
+                    rows = self._q('students', 'WHERE xh=?', (xh,))
+                    if rows:
+                        old = self._student_from_db(rows[0])
+                        s = dict(old)
+                        for k in STUDENT_API_KEYS:
+                            if k in ('id', 'concerns', 'createdAt'):
+                                continue
+                            if k == 'note' and not str(rec.get(k) or '').strip():
+                                continue
+                            s[k] = rec.get(k, old.get(k, ''))
+                        s['updatedAt'] = now
+                        self.update_student(old['id'], s)
+                        out.append(s)
+                        continue
                 skips.append({'row': row_no, 'xh': xh, 'name': name, 'reason': '学号已存在（%s）' % exist[xh]})
                 continue
             if xh and xh in seen:
@@ -445,8 +460,11 @@ class Database:
     def delete_talk(self, tid):
         self._exec('DELETE FROM talks WHERE id=?', (tid,))
 
-    def mark_follow_done(self, tid):
-        self._exec('UPDATE talks SET done=1, updated_at=? WHERE id=?', (_now(), tid))
+    def mark_follow_done(self, tid, done_date=None):
+        """v3.0：标记跟进完成，并记录完成日期（缺省取今天）。"""
+        done_date = (done_date or '').strip() or _today()
+        self._exec('UPDATE talks SET done=1, follow_date=?, updated_at=? WHERE id=?',
+                   (done_date, _now(), tid))
 
     # ---------- 文件索引 ----------
     def add_file(self, f):
@@ -779,12 +797,13 @@ class Database:
             imported.append({'sid': stu['id'], 'name': stu['name'], 'xh': xh})
         return {'imported': len(imported), 'skips': skips, 'names': imported}
 
-    def import_concerns(self, records):
+    def import_concerns(self, records, overwrite=True):
         """批量导入重点关注。records: [{xh, type, level}] → {imported, skips}。
 
         学号与学生台账绑定；类型限 心理/学业/思政/经济；
         级别：心理类为 红/橙/黄/严重/一般 五级，其余为 红/橙/黄 三级；
-        同一学生同一类型已有关注则覆盖级别，无则新增。
+        overwrite=True（默认）：同一学生同一类型已有关注则覆盖级别，其他类型保留；
+        overwrite=False：该生该类型已存在时跳过该行（不覆盖）。
         """
         imported = []
         skips = []
@@ -817,6 +836,10 @@ class Database:
             if level not in valid_levels[ctype]:
                 skips.append({'row': idx, 'reason': '级别无效（' + (level or '空') + '），' + ctype + '类应为 ' + '/'.join(valid_levels[ctype])})
                 continue
+            old = next((c for c in (stu.get('concerns') or []) if c.get('t') == ctype), None)
+            if old and not overwrite:
+                skips.append({'row': idx, 'reason': '该生已存在 ' + ctype + '·' + old.get('l', '') + '（已选择不覆盖）'})
+                continue
             concerns = [c for c in (stu.get('concerns') or []) if c.get('t') != ctype]
             concerns.append({'t': ctype, 'l': level})
             self.update_student(stu['id'], dict(stu, concerns=concerns))
@@ -824,7 +847,11 @@ class Database:
         return {'imported': len(imported), 'skips': skips, 'names': imported}
 
     def import_talks(self, records):
-        """批量导入谈话。records: [{time, place, xh, name, topic, traits, content, note, talker}] → {imported, skips}。"""
+        """批量导入谈话。records: [{time, place, xh, name, topic, traits, content, note, talker, followUp, followDate, status}] → {imported, skips}。
+
+        v3.0：后续跟进事项、跟进日期、跟进状态均允许缺失；
+        status ∈ 已完成 / 待跟进 / 无跟进事项；缺省时按 followUp 是否填写判定（填了=待跟进，未填=无跟进事项）。
+        """
         imported = []
         skips = []
         st = self.state()['students']
@@ -851,6 +878,14 @@ class Database:
             if not content:
                 skips.append({'row': idx, 'reason': '谈话要点记录为空'})
                 continue
+            follow_up = str(rec.get('followUp') or '').strip()
+            follow_date = str(rec.get('followDate') or '').strip()
+            status = str(rec.get('status') or '').strip()
+            done = status == '已完成'
+            if status == '无跟进事项':
+                follow_up = ''
+            if done and not follow_date:
+                follow_date = time_[:10]
             t = {
                 'sid': stu['id'], 'sname': stu['name'],
                 'time': time_[:10], 'topic': str(rec.get('topic') or '').strip() or '未分类',
@@ -858,7 +893,7 @@ class Database:
                 'talker': str(rec.get('talker') or '').strip(),
                 'traits': str(rec.get('traits') or '').strip(),
                 'content': content,
-                'followUp': '', 'followDate': '', 'done': False,
+                'followUp': follow_up, 'followDate': follow_date, 'done': done,
                 'createdAt': _now(), 'updatedAt': _now(),
             }
             self.add_talk(t)
